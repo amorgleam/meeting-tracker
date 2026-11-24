@@ -1,0 +1,38 @@
+# ==============================================================================
+# GIT IGNORE RULES FOR MEETING TRACKER
+# ==============================================================================
+
+# Flutter & Dart artifacts
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/.packages
+app/.pub/
+app/.idea/
+app/*.iml
+app/windows/flutter/ephemeral/
+app/windows/runner/Release/
+app/windows/runner/Debug/
+
+# Prebuilt release packages (distributed via GitHub Releases)
+release/
+
+# Node.js backend
+server/node_modules/
+server/.env
+server/npm-debug.log*
+server/yarn-debug.log*
+server/yarn-error.log*
+
+# Environment secrets
+.env
+*.local
+*.log
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp
+*.bak

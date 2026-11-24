@@ -1,0 +1,250 @@
+openapi: 3.0.3
+info:
+  title: Institutional Meeting Tracker API
+  version: 1.0.0
+  description: |
+    Production-grade REST and Realtime WebSocket API for the Institutional Meeting Tracker.
+    Features offline sync outbox processing, field-level conflict resolution (latest update wins),
+    session governance enforcement, and executive override audit trails.
+servers:
+  - url: /api/v1
+    description: Current API v1 endpoint
+
+paths:
+  /health:
+    get:
+      summary: Health check and connectivity probe
+      description: Returns service status, PostgreSQL connection latency, and active WebSocket connection count.
+      responses:
+        '200':
+          description: Service is healthy and operational.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: healthy
+                  version:
+                    type: string
+                    example: 1.0.0
+                  timestamp:
+                    type: string
+                    format: date-time
+                  database:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        example: connected
+                      latency_ms:
+                        type: number
+                        example: 1.2
+                  websockets:
+                    type: object
+                    properties:
+                      active_clients:
+                        type: integer
+                        example: 3
+
+  /auth/login:
+    post:
+      summary: Authenticate user credentials
+      description: Validates email and password, returning a JWT token with user role and profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  example: admin@institution.gov
+                password:
+                  type: string
+                  example: Admin@123
+      responses:
+        '200':
+          description: Successful authentication
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      email:
+                        type: string
+                      role:
+                        type: string
+                        enum: [ADMIN, SECRETARY, VIEWER]
+        '401':
+          description: Invalid email or password
+
+  /settings:
+    get:
+      summary: Retrieve global institutional settings
+      description: Returns institutional settings, including the active main-task completion rule mode.
+      responses:
+        '200':
+          description: Institutional settings object
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  completion_rule:
+                    type: string
+                    enum: [ModeA_Strict, ModeB_Relaxed]
+                    example: ModeA_Strict
+                  updated_at:
+                    type: string
+                    format: date-time
+    put:
+      summary: Update institutional settings
+      description: Updates the global completion rule. Restricted to ADMIN and SECRETARY roles.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - completion_rule
+              properties:
+                completion_rule:
+                  type: string
+                  enum: [ModeA_Strict, ModeB_Relaxed]
+      responses:
+        '200':
+          description: Settings successfully updated and broadcast over WebSocket.
+
+  /sync/push:
+    post:
+      summary: Push client outbox mutations (Offline Sync)
+      description: |
+        Receives an array of outbox mutations (tasks, meetings, members, activity logs).
+        Applies field-level conflict resolution (latest `updated_at` wins), persists records,
+        and broadcasts updates to all other connected devices via WebSocket.
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - mutations
+                - device_id
+              properties:
+                device_id:
+                  type: string
+                  example: dev-win-10492
+                mutations:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - id
+                      - entity_type
+                      - entity_id
+                      - operation
+                      - payload
+                    properties:
+                      id:
+                        type: string
+                      entity_type:
+                        type: string
+                        enum: [member, meeting, task, activity_log]
+                      entity_id:
+                        type: string
+                      operation:
+                        type: string
+                        enum: [INSERT, UPDATE, UPSERT, DELETE]
+                      payload:
+                        type: object
+      responses:
+        '200':
+          description: Mutations successfully processed and resolved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  applied_count:
+                    type: integer
+                  conflicts_resolved:
+                    type: integer
+                  sync_token:
+                    type: string
+                    format: date-time
+
+  /sync/pull:
+    get:
+      summary: Pull modified entities since sync token
+      description: Returns all records modified or created after the `since` timestamp or token.
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: since
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: ISO-8601 timestamp representing the last sync token.
+        - name: device_id
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Exclude mutations originating from this device.
+      responses:
+        '200':
+          description: Delta sync payload containing modified records.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sync_token:
+                    type: string
+                    format: date-time
+                  members:
+                    type: array
+                    items:
+                      type: object
+                  meetings:
+                    type: array
+                    items:
+                      type: object
+                  tasks:
+                    type: array
+                    items:
+                      type: object
+                  activity_logs:
+                    type: array
+                    items:
+                      type: object
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT

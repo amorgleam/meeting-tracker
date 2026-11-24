@@ -1,0 +1,40 @@
+name: meeting_tracker
+description: "A production-quality offline-first institutional Meeting Tracker app."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.3
+  uuid: ^4.5.1
+  provider: ^6.1.2
+  collection: ^1.18.0
+  google_fonts: ^6.2.1
+  drift: ^2.20.3
+  sqlite3: ^2.4.6
+  sqlite3_flutter_libs: ^0.5.24
+  path_provider: ^2.1.4
+  path: ^1.9.0
+  http: ^1.2.2
+  web_socket_channel: ^3.0.1
+  excel: ^4.0.6
+  pdf: ^3.11.1
+  printing: ^5.13.2
+  file_saver: ^0.2.14
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  drift_dev: ^2.20.3
+  build_runner: ^2.4.12
+
+flutter:
+  uses-material-design: true
