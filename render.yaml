@@ -9,7 +9,7 @@
 databases:
   # Managed PostgreSQL instance provisioned inside Render's private virtual network
   - name: meeting-tracker-db
-    plan: starter # Options: free (spins down after inactivity), starter (recommended for persistent production), standard
+    plan: free # Free tier managed database
     databaseName: meeting_tracker
     user: tracker_admin
     region: oregon # Choose the region closest to your institution (e.g. oregon, frankfurt, singapore)
@@ -20,7 +20,7 @@ services:
   - type: web
     name: meeting-tracker-api
     runtime: node
-    plan: starter # Starter plan guarantees persistent runtime without sleep cycles for WebSocket connections
+    plan: free # Free tier web service
     region: oregon
     rootDir: server # Subdirectory containing package.json and server source code
     buildCommand: "npm install && npm run migrate && npm run seed"

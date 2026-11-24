@@ -73,7 +73,7 @@ The repository contains a fully automated `render.yaml` infrastructure-as-code f
 4. Render will parse `render.yaml` and display the resources it is about to create:
    - **`meeting-tracker-db`**: Managed PostgreSQL Database.
    - **`meeting-tracker-api`**: Node.js Web Service.
-5. Review the plan options (Starter plan recommended for persistent WebSocket connections).
+5. Review the plan options (configured with the Free tier by default).
 6. Click **"Apply"**.
 7. Render will automatically:
    - Provision the PostgreSQL database.
