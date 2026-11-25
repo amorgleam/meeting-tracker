@@ -550,6 +550,7 @@ class _TaskLedgerScreenState extends State<TaskLedgerScreen> {
                     tasks: tasks,
                     members: members,
                     filterName: widget.title,
+                    settings: context.read<AppState>().settings,
                   );
                 } catch (e) {
                   if (context.mounted) {

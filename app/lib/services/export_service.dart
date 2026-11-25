@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
@@ -13,10 +14,94 @@ import '../models/meeting_model.dart';
 import '../models/task_model.dart';
 import '../models/member_model.dart';
 import '../models/activity_log_model.dart';
+import '../models/app_settings_model.dart';
 
 class ExportService {
   static final DateFormat _dateFormat = DateFormat('yyyy-MM-dd HH:mm');
   static final DateFormat _dateOnlyFormat = DateFormat('yyyy-MM-dd');
+
+  /// Helper to safely truncate or keep string ID
+  static String _safeId(String id, [int maxLen = 8]) => id.length <= maxLen ? id : id.substring(0, maxLen);
+
+  /// Helper to build customizable organization letterhead banner for PDF reports
+  static pw.Widget _buildHeaderBanner({
+    required AppSettings? settings,
+    required String defaultTitle,
+    required String subtitle,
+    required PdfColor primaryColor,
+    required PdfColor accentColor,
+    required PdfColor borderCol,
+  }) {
+    pw.Widget? letterheadWidget;
+    if (settings != null &&
+        settings.enableLetterhead &&
+        settings.letterheadBase64 != null &&
+        settings.letterheadBase64!.isNotEmpty) {
+      try {
+        final imageBytes = base64Decode(settings.letterheadBase64!);
+        final img = pw.MemoryImage(imageBytes);
+
+        pw.Alignment align = pw.Alignment.center;
+        if (settings.letterheadAlignment == 'LEFT') align = pw.Alignment.centerLeft;
+        if (settings.letterheadAlignment == 'RIGHT') align = pw.Alignment.centerRight;
+
+        letterheadWidget = pw.Container(
+          height: settings.letterheadHeight,
+          width: double.infinity,
+          alignment: align,
+          padding: const pw.EdgeInsets.only(bottom: 8),
+          child: pw.Image(
+            img,
+            fit: settings.letterheadAlignment == 'FULL_WIDTH' ? pw.BoxFit.fitWidth : pw.BoxFit.contain,
+          ),
+        );
+      } catch (e) {
+        debugPrint('[LETTERHEAD RENDER ERROR] $e');
+      }
+    }
+
+    final orgName = (settings != null && settings.organizationName.isNotEmpty)
+        ? settings.organizationName.toUpperCase()
+        : defaultTitle;
+    final orgSubtitle = (settings != null && settings.organizationSubtitle.isNotEmpty)
+        ? settings.organizationSubtitle
+        : subtitle;
+
+    return pw.Container(
+      padding: const pw.EdgeInsets.only(bottom: 12),
+      decoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: borderCol, width: 1))),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          if (letterheadWidget != null) letterheadWidget,
+          pw.Row(
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: pw.CrossAxisAlignment.end,
+            children: [
+              pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    orgName,
+                    style: pw.TextStyle(color: primaryColor, fontSize: 10, fontWeight: pw.FontWeight.bold),
+                  ),
+                  pw.SizedBox(height: 2),
+                  pw.Text(
+                    orgSubtitle,
+                    style: const pw.TextStyle(color: PdfColors.grey700, fontSize: 8),
+                  ),
+                ],
+              ),
+              pw.Text(
+                subtitle,
+                style: pw.TextStyle(color: accentColor, fontSize: 9, fontWeight: pw.FontWeight.bold),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   // ============================================================================
   // 1. MEETING PROCEEDINGS EXPORT (EXCEL & PDF)
@@ -161,7 +246,8 @@ class ExportService {
     }
 
     final fileBytes = excel.save()!;
-    final filename = 'Meeting_Proceedings_${meetingDateStr}_${meeting.id.substring(0, 8)}.xlsx';
+    final safeId = _safeId(meeting.id);
+    final filename = 'Meeting_Proceedings_${meetingDateStr}_$safeId.xlsx';
 
     return await _saveFile(filename: filename, bytes: Uint8List.fromList(fileBytes), ext: 'xlsx', mimeType: MimeType.microsoftExcel);
   }
@@ -173,12 +259,13 @@ class ExportService {
     required List<TaskItem> carriedTasks,
     required List<ActivityLog> workDoneLogs,
     required List<Member> members,
+    AppSettings? settings,
   }) async {
     final pdf = pw.Document();
     final meetingDateStr = _dateOnlyFormat.format(meeting.meetingDate);
 
-    final navyColor = PdfColor.fromHex('#1F3A5F');
-    final goldColor = PdfColor.fromHex('#B8923A');
+    final navyColor = settings != null ? PdfColor.fromHex(settings.primaryColorHex) : PdfColor.fromHex('#1F3A5F');
+    final goldColor = settings != null ? PdfColor.fromHex(settings.accentColorHex) : PdfColor.fromHex('#B8923A');
     final creamBg = PdfColor.fromHex('#FAF7F0');
     final borderCol = PdfColor.fromHex('#DDD5C7');
 
@@ -187,16 +274,13 @@ class ExportService {
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.all(32),
         header: (pw.Context context) {
-          return pw.Container(
-            padding: const pw.EdgeInsets.only(bottom: 12),
-            decoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: borderCol, width: 1))),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('INSTITUTIONAL MEETING PROCEEDINGS & DOCKET RECORD', style: pw.TextStyle(color: navyColor, fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                pw.Text('SESSION DATE: $meetingDateStr', style: pw.TextStyle(color: goldColor, fontSize: 10, fontWeight: pw.FontWeight.bold)),
-              ],
-            ),
+          return _buildHeaderBanner(
+            settings: settings,
+            defaultTitle: 'INSTITUTIONAL MEETING PROCEEDINGS & DOCKET RECORD',
+            subtitle: 'SESSION DATE: $meetingDateStr',
+            primaryColor: navyColor,
+            accentColor: goldColor,
+            borderCol: borderCol,
           );
         },
         footer: (pw.Context context) {
@@ -424,10 +508,11 @@ class ExportService {
     required List<TaskItem> tasks,
     required List<Member> members,
     String filterName = 'ALL',
+    AppSettings? settings,
   }) async {
     final pdf = pw.Document();
-    final navyColor = PdfColor.fromHex('#1F3A5F');
-    final goldColor = PdfColor.fromHex('#B8923A');
+    final navyColor = settings != null ? PdfColor.fromHex(settings.primaryColorHex) : PdfColor.fromHex('#1F3A5F');
+    final goldColor = settings != null ? PdfColor.fromHex(settings.accentColorHex) : PdfColor.fromHex('#B8923A');
     final creamBg = PdfColor.fromHex('#FAF7F0');
     final borderCol = PdfColor.fromHex('#DDD5C7');
 
@@ -436,16 +521,13 @@ class ExportService {
         pageFormat: PdfPageFormat.a4.landscape,
         margin: const pw.EdgeInsets.all(28),
         header: (pw.Context context) {
-          return pw.Container(
-            padding: const pw.EdgeInsets.only(bottom: 10),
-            decoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: borderCol, width: 1))),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('INSTITUTIONAL MASTER DOCKET LEDGER REGISTER', style: pw.TextStyle(color: navyColor, fontSize: 11, fontWeight: pw.FontWeight.bold)),
-                pw.Text('SCOPE: $filterName | TOTAL RECORDS: ${tasks.length}', style: pw.TextStyle(color: goldColor, fontSize: 9, fontWeight: pw.FontWeight.bold)),
-              ],
-            ),
+          return _buildHeaderBanner(
+            settings: settings,
+            defaultTitle: 'INSTITUTIONAL MASTER DOCKET LEDGER REGISTER',
+            subtitle: 'SCOPE: $filterName | TOTAL RECORDS: ${tasks.length}',
+            primaryColor: navyColor,
+            accentColor: goldColor,
+            borderCol: borderCol,
           );
         },
         footer: (pw.Context context) {
@@ -573,6 +655,48 @@ class ExportService {
       ]);
     }
 
+    // Complete Tasks & Subtasks Docket Sheet
+    final docketSheet = excel['Complete Docket & Subtasks'];
+    docketSheet.appendRow([
+      TextCellValue('Record ID'),
+      TextCellValue('Hierarchy'),
+      TextCellValue('Task / Subtask Title'),
+      TextCellValue('Status'),
+      TextCellValue('Assigned Members'),
+      TextCellValue('Initiated Date'),
+      TextCellValue('Target Deadline'),
+      TextCellValue('Finished Date'),
+      TextCellValue('Duration / Days Active'),
+      TextCellValue('Executive Override?'),
+      TextCellValue('Override Reason'),
+      TextCellValue('Docket Notes / Remarks'),
+    ]);
+
+    for (final t in periodTasks) {
+      final assignees = t.assignedMemberIds.map((id) => members.where((m) => m.id == id).firstOrNull?.name ?? id).join(', ');
+      final deadlineStr = t.deadline != null ? _dateOnlyFormat.format(t.deadline!) : 'None';
+      final isDone = t.status == 'Completed';
+      final finishedStr = isDone ? _dateOnlyFormat.format(t.updatedAt) : (t.status == 'Eliminated' ? 'Eliminated' : 'Open');
+      final durationStr = isDone
+          ? '${t.updatedAt.difference(t.initiateDate).inDays} days to finish'
+          : '${DateTime.now().difference(t.initiateDate).inDays} days active';
+
+      docketSheet.appendRow([
+        TextCellValue(t.id),
+        TextCellValue(t.isMainTask ? 'Main Task' : '  ↳ Subtask'),
+        TextCellValue(t.title),
+        TextCellValue(t.status),
+        TextCellValue(assignees.isNotEmpty ? assignees : 'Unassigned'),
+        TextCellValue(_dateOnlyFormat.format(t.initiateDate)),
+        TextCellValue(deadlineStr),
+        TextCellValue(finishedStr),
+        TextCellValue(durationStr),
+        TextCellValue(t.isOverridden ? 'YES (OVERRIDE)' : 'No'),
+        TextCellValue(t.overrideReason ?? ''),
+        TextCellValue(t.note),
+      ]);
+    }
+
     final fileBytes = excel.save()!;
     final filename = 'Executive_Audit_Report_${months}M_${_dateOnlyFormat.format(DateTime.now())}.xlsx';
     return await _saveFile(filename: filename, bytes: Uint8List.fromList(fileBytes), ext: 'xlsx', mimeType: MimeType.microsoftExcel);
@@ -585,10 +709,11 @@ class ExportService {
     required List<TaskItem> longPendingTasks,
     required List<Member> members,
     required String completionRate,
+    AppSettings? settings,
   }) async {
     final pdf = pw.Document();
-    final navyColor = PdfColor.fromHex('#1F3A5F');
-    final goldColor = PdfColor.fromHex('#B8923A');
+    final navyColor = settings != null ? PdfColor.fromHex(settings.primaryColorHex) : PdfColor.fromHex('#1F3A5F');
+    final goldColor = settings != null ? PdfColor.fromHex(settings.accentColorHex) : PdfColor.fromHex('#B8923A');
     final creamBg = PdfColor.fromHex('#FAF7F0');
     final borderCol = PdfColor.fromHex('#DDD5C7');
 
@@ -600,23 +725,20 @@ class ExportService {
     pdf.addPage(
       pw.MultiPage(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        margin: const pw.EdgeInsets.all(28),
         header: (pw.Context context) {
-          return pw.Container(
-            padding: const pw.EdgeInsets.only(bottom: 12),
-            decoration: pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: borderCol, width: 1))),
-            child: pw.Row(
-              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-              children: [
-                pw.Text('EXECUTIVE STATISTICAL & PROGRESS AUDIT REPORT', style: pw.TextStyle(color: navyColor, fontSize: 10, fontWeight: pw.FontWeight.bold)),
-                pw.Text('$months-MONTH HORIZON', style: pw.TextStyle(color: goldColor, fontSize: 10, fontWeight: pw.FontWeight.bold)),
-              ],
-            ),
+          return _buildHeaderBanner(
+            settings: settings,
+            defaultTitle: 'EXECUTIVE STATISTICAL & PROGRESS AUDIT REPORT',
+            subtitle: '$months-MONTH HORIZON',
+            primaryColor: navyColor,
+            accentColor: goldColor,
+            borderCol: borderCol,
           );
         },
         build: (pw.Context context) => [
           pw.Container(
-            padding: const pw.EdgeInsets.all(16),
+            padding: const pw.EdgeInsets.all(14),
             decoration: pw.BoxDecoration(color: creamBg, border: pw.Border.all(color: borderCol)),
             child: pw.Row(
               mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
@@ -630,11 +752,11 @@ class ExportService {
               ],
             ),
           ),
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 16),
 
           // Member Workload Table
-          pw.Text('MEMBER WORKLOAD ALLOCATION', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: navyColor)),
-          pw.SizedBox(height: 8),
+          pw.Text('MEMBER WORKLOAD ALLOCATION', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: navyColor)),
+          pw.SizedBox(height: 6),
           pw.TableHelper.fromTextArray(
             headers: ['Member Name', 'Designation', 'Assigned', 'Completed', 'In Progress', 'Pending'],
             data: members.map((m) {
@@ -648,18 +770,18 @@ class ExportService {
                 '${assigned.where((t) => t.status == 'Pending').length}',
               ];
             }).toList(),
-            headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: navyColor),
-            cellStyle: const pw.TextStyle(fontSize: 8),
+            headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: navyColor),
+            cellStyle: const pw.TextStyle(fontSize: 7.5),
             headerDecoration: pw.BoxDecoration(color: creamBg),
             border: pw.TableBorder.all(color: borderCol, width: 0.5),
           ),
-          pw.SizedBox(height: 20),
+          pw.SizedBox(height: 16),
 
           // Long Pending Items
-          pw.Text('CRITICAL LONG-PENDING ITEMS (> 14 DAYS DORMANT)', style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#DC2626'))),
-          pw.SizedBox(height: 8),
+          pw.Text('CRITICAL LONG-PENDING ITEMS (> 14 DAYS DORMANT)', style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: PdfColor.fromHex('#DC2626'))),
+          pw.SizedBox(height: 6),
           if (longPendingTasks.isEmpty)
-            pw.Text('No dormant tasks exceeding 14 days.', style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600))
+            pw.Text('No dormant tasks exceeding 14 days.', style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600))
           else
             pw.TableHelper.fromTextArray(
               headers: ['Task Title', 'Status', 'Days Dormant', 'Docket Note'],
@@ -672,11 +794,50 @@ class ExportService {
                   t.note,
                 ];
               }).toList(),
-              headerStyle: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: navyColor),
-              cellStyle: const pw.TextStyle(fontSize: 8),
+              headerStyle: pw.TextStyle(fontSize: 8.5, fontWeight: pw.FontWeight.bold, color: navyColor),
+              cellStyle: const pw.TextStyle(fontSize: 7.5),
               headerDecoration: pw.BoxDecoration(color: creamBg),
               border: pw.TableBorder.all(color: borderCol, width: 0.5),
             ),
+
+          pw.SizedBox(height: 18),
+
+          // Comprehensive Detailed Docket Table
+          pw.Text('COMPREHENSIVE AUDIT TRAIL: ALL DOCKET ITEMS & SUBTASKS (${periodTasks.length})',
+              style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: navyColor)),
+          pw.SizedBox(height: 6),
+          pw.TableHelper.fromTextArray(
+            headers: ['Level', 'Task / Subtask Title', 'Status', 'Initiated', 'Deadline', 'Finished', 'Duration', 'Assignees', 'Notes'],
+            data: periodTasks.map((t) {
+              final assignees = t.assignedMemberIds.map((id) => members.where((m) => m.id == id).firstOrNull?.name ?? id).join(', ');
+              final deadlineStr = t.deadline != null ? _dateOnlyFormat.format(t.deadline!) : '-';
+              final isDone = t.status == 'Completed';
+              final finishedStr = isDone ? _dateOnlyFormat.format(t.updatedAt) : (t.status == 'Eliminated' ? 'Eliminated' : 'Open');
+              final durationStr = isDone
+                  ? '${t.updatedAt.difference(t.initiateDate).inDays}d done'
+                  : '${DateTime.now().difference(t.initiateDate).inDays}d open';
+              final statusDisplay = t.isOverridden ? '${t.status} (Override)' : t.status;
+              final notesDisplay = t.overrideReason != null && t.overrideReason!.isNotEmpty
+                  ? '${t.note} [Override: ${t.overrideReason}]'
+                  : t.note;
+
+              return [
+                t.isMainTask ? 'Main' : '  > Sub',
+                t.title,
+                statusDisplay,
+                _dateOnlyFormat.format(t.initiateDate),
+                deadlineStr,
+                finishedStr,
+                durationStr,
+                assignees.isNotEmpty ? assignees : 'Unassigned',
+                notesDisplay,
+              ];
+            }).toList(),
+            headerStyle: pw.TextStyle(fontSize: 7.5, fontWeight: pw.FontWeight.bold, color: navyColor),
+            cellStyle: const pw.TextStyle(fontSize: 6.5),
+            headerDecoration: pw.BoxDecoration(color: creamBg),
+            border: pw.TableBorder.all(color: borderCol, width: 0.5),
+          ),
         ],
       ),
     );

@@ -18,11 +18,15 @@ class MeetingTrackerApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AppState()),
       ],
-      child: MaterialApp(
-        title: 'Institutional Meeting Tracker',
-        debugShowCheckedModeBanner: false,
-        theme: InstitutionalTheme.themeData,
-        home: const MainLayout(),
+      child: Consumer<AppState>(
+        builder: (context, appState, child) {
+          return MaterialApp(
+            title: 'Institutional Meeting Tracker',
+            debugShowCheckedModeBanner: false,
+            theme: InstitutionalTheme.getTheme(appState.settings),
+            home: const MainLayout(),
+          );
+        },
       ),
     );
   }

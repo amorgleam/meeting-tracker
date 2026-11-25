@@ -419,6 +419,7 @@ class _MeetingDetailScreenState extends State<MeetingDetailScreen> with SingleTi
                     carriedTasks: carriedTasks,
                     workDoneLogs: workDoneLogs,
                     members: members,
+                    settings: context.read<AppState>().settings,
                   );
                 } catch (e) {
                   if (context.mounted) {

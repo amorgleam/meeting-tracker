@@ -405,6 +405,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     longPendingTasks: longPendingTasks,
                     members: members,
                     completionRate: completionRate,
+                    settings: context.read<AppState>().settings,
                   );
                 } catch (e) {
                   if (context.mounted) {

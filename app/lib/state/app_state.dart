@@ -503,6 +503,22 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  void deleteMember(String memberId) {
+    final idx = _members.indexWhere((m) => m.id == memberId);
+    if (idx != -1) {
+      final toDelete = _members[idx].copyWith(
+        isDeleted: true,
+        updatedAt: DateTime.now(),
+        version: _members[idx].version + 1,
+      );
+      _members.removeAt(idx);
+      try {
+        LocalDatabase.instance.insertMember(toDelete);
+      } catch (_) {}
+      notifyListeners();
+    }
+  }
+
   Member? getMember(String id) {
     try {
       return _members.firstWhere((m) => m.id == id);

@@ -158,6 +158,11 @@ class MembersScreen extends StatelessWidget {
                               ),
                               onPressed: () => appState.toggleMemberActive(member.id),
                             ),
+                            IconButton(
+                              tooltip: 'Remove / Delete Member',
+                              icon: const Icon(Icons.delete_outline, size: 20, color: InstitutionalTheme.statusEliminated),
+                              onPressed: () => _confirmDeleteMember(context, appState, member),
+                            ),
                           ],
                         ),
                       );
@@ -241,6 +246,44 @@ class MembersScreen extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  void _confirmDeleteMember(BuildContext context, AppState appState, Member member) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: InstitutionalTheme.creamCard,
+        title: const Text(
+          'REMOVE MEMBER FROM ROSTER?',
+          style: TextStyle(fontFamily: 'serif', color: InstitutionalTheme.primaryNavy, fontSize: 16),
+        ),
+        content: Text(
+          'Are you sure you want to remove "${member.name}" from the institutional registry?\n\n'
+          'Their historical records and docket logs will be preserved for audit compliance, but they will no longer appear in active member rosters.',
+          style: const TextStyle(fontSize: 13, color: InstitutionalTheme.textBody),
+        ),
+        actions: [
+          OutlinedButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('CANCEL'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: InstitutionalTheme.statusEliminated),
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              appState.deleteMember(member.id);
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Member "${member.name}" removed from registry.'),
+                  backgroundColor: InstitutionalTheme.primaryNavy,
+                ),
+              );
+            },
+            child: const Text('CONFIRM REMOVE'),
+          ),
+        ],
       ),
     );
   }
