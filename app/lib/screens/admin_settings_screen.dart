@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../theme/institutional_theme.dart';
 import '../state/app_state.dart';
 import '../models/app_settings_model.dart';
+import '../sync/sync_service.dart';
 
 class AdminSettingsScreen extends StatefulWidget {
   const AdminSettingsScreen({super.key});
@@ -303,13 +304,19 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                         ),
                         const SizedBox(width: 12),
                         OutlinedButton.icon(
-                          onPressed: () {
+                          onPressed: () async {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Sync engine active: Local SQLite (Drift) + Outbox queue ready.'),
-                                backgroundColor: InstitutionalTheme.primaryNavy,
-                              ),
+                              const SnackBar(content: Text('Connecting to server and initiating sync...')),
                             );
+                            final success = await SyncService.instance.sync();
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(success ? 'Synchronization successful with server.' : 'Sync completed or server is offline/sleeping.'),
+                                  backgroundColor: success ? InstitutionalTheme.statusCompleted : InstitutionalTheme.primaryNavy,
+                                ),
+                              );
+                            }
                           },
                           icon: const Icon(Icons.sync, size: 16),
                           label: const Text('TRIGGER OUTBOX SYNC'),

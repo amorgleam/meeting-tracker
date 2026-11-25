@@ -7,6 +7,7 @@ import '../models/activity_log_model.dart';
 import '../models/app_settings_model.dart';
 import '../rules/completion_rules.dart';
 import '../database/local_database.dart';
+import '../sync/sync_service.dart';
 
 class AppState extends ChangeNotifier {
   static const _uuid = Uuid();
@@ -67,10 +68,33 @@ class AppState extends ChangeNotifier {
           LocalDatabase.instance.insertActivityLog(a, enqueueOutbox: false);
         }
       }
+      SyncService.instance.configure(
+        serverBaseUrl: _settings.serverUrl,
+        deviceId: _settings.deviceId,
+        onDataChangedCallback: _reloadFromDatabase,
+      );
+      SyncService.instance.startPeriodicSync();
       notifyListeners();
     } catch (e) {
       debugPrint('LocalDatabase init fallback: $e');
     }
+  }
+
+  void _reloadFromDatabase() {
+    _members.clear();
+    _members.addAll(LocalDatabase.instance.getMembers());
+    _meetings.clear();
+    _meetings.addAll(LocalDatabase.instance.getMeetings());
+    _tasks.clear();
+    _tasks.addAll(LocalDatabase.instance.getTasks());
+    _activityLogs.clear();
+    _activityLogs.addAll(LocalDatabase.instance.getActivityLogs());
+    try {
+      _activeMeeting = _meetings.firstWhere((m) => m.status == 'In Progress');
+    } catch (_) {
+      _activeMeeting = null;
+    }
+    notifyListeners();
   }
 
   void setNavIndex(int index) {
@@ -96,6 +120,12 @@ class AppState extends ChangeNotifier {
 
   void updateSettings(AppSettings newSettings) {
     _settings = newSettings;
+    SyncService.instance.configure(
+      serverBaseUrl: _settings.serverUrl,
+      deviceId: _settings.deviceId,
+      onDataChangedCallback: _reloadFromDatabase,
+    );
+    SyncService.instance.sync();
     notifyListeners();
   }
 
