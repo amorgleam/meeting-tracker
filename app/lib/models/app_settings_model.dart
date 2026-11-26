@@ -1,3 +1,5 @@
+import 'model_helpers.dart';
+
 enum CompletionRuleMode {
   strict,  // Mode A: Strict (DEFAULT) - all subtasks must be Completed
   relaxed, // Mode B: Relaxed - every subtask Completed or Eliminated (at least 1 Completed)
@@ -24,9 +26,11 @@ class AppSettings {
   final String accentColorHex;
   final String themePaletteName;
 
+  static const String defaultProductionServerUrl = 'https://meeting-tracker-api-kb6s.onrender.com';
+
   AppSettings({
     this.completionRule = CompletionRuleMode.strict,
-    this.serverUrl = 'http://localhost:4000',
+    this.serverUrl = defaultProductionServerUrl,
     this.userRole = 'Admin',
     this.currentUserName = 'Arthur Pendelton (Sec-Gen)',
     this.currentUserId = 'user-admin-01',
@@ -99,16 +103,17 @@ class AppSettings {
   }
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
+    final rawUrl = json['server_url'] as String?;
     return AppSettings(
       completionRule: (json['completion_rule'] as String?)?.toLowerCase() == 'relaxed'
           ? CompletionRuleMode.relaxed
           : CompletionRuleMode.strict,
-      serverUrl: json['server_url'] as String? ?? 'http://localhost:4000',
+      serverUrl: (rawUrl == null || rawUrl.isEmpty) ? defaultProductionServerUrl : rawUrl,
       userRole: json['user_role'] as String? ?? 'Admin',
       currentUserName: json['current_user_name'] as String? ?? 'Arthur Pendelton (Sec-Gen)',
       currentUserId: json['current_user_id'] as String? ?? 'user-admin-01',
       deviceId: json['device_id'] as String? ?? 'dev-win-01',
-      enableLetterhead: json['enable_letterhead'] as bool? ?? false,
+      enableLetterhead: parseSqlBool(json['enable_letterhead'], defaultValue: false),
       letterheadBase64: json['letterhead_base64'] as String?,
       letterheadAlignment: json['letterhead_alignment'] as String? ?? 'FULL_WIDTH',
       letterheadHeight: (json['letterhead_height'] as num?)?.toDouble() ?? 70.0,

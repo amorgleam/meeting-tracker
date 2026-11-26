@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../theme/institutional_theme.dart';
 import '../state/app_state.dart';
 import '../models/app_settings_model.dart';
+import '../models/connected_device_model.dart';
 import '../sync/sync_service.dart';
 
 class AdminSettingsScreen extends StatefulWidget {
@@ -30,6 +31,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _orgSubtitleController = TextEditingController(text: settings.organizationSubtitle);
     _primaryHexController = TextEditingController(text: settings.primaryColorHex);
     _accentHexController = TextEditingController(text: settings.accentColorHex);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AppState>().refreshConnectedDevices();
+      }
+    });
   }
 
   @override
@@ -665,7 +671,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       controller: _serverUrlController,
                       decoration: InputDecoration(
                         labelText: 'Institutional Server Base URL',
-                        hintText: 'https://meeting-tracker-api.onrender.com or http://localhost:4000',
+                        hintText: 'https://meeting-tracker-api-kb6s.onrender.com',
                         suffixIcon: IconButton(
                           icon: const Icon(Icons.save, color: InstitutionalTheme.primaryNavy),
                           onPressed: () {
@@ -680,7 +686,10 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       ),
                     ),
                     const SizedBox(height: 14),
-                    Row(
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 10,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -694,9 +703,12 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                             style: const TextStyle(fontSize: 11, fontFamily: 'monospace', fontWeight: FontWeight.bold),
                           ),
                         ),
-                        const SizedBox(width: 12),
                         OutlinedButton.icon(
                           onPressed: () async {
+                            final enteredUrl = _serverUrlController.text.trim();
+                            if (enteredUrl.isNotEmpty && enteredUrl != settings.serverUrl) {
+                              appState.updateSettings(settings.copyWith(serverUrl: enteredUrl));
+                            }
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(content: Text('Connecting to server and initiating sync...')),
                             );
@@ -704,7 +716,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                             if (context.mounted) {
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
-                                  content: Text(success ? 'Synchronization successful with server.' : 'Sync completed or server is offline/sleeping.'),
+                                  content: Text(success ? 'Synchronization successful with server.' : 'Sync completed or server is offline/waking up.'),
                                   backgroundColor: success ? InstitutionalTheme.statusCompleted : InstitutionalTheme.primaryNavy,
                                 ),
                               );
@@ -713,7 +725,176 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                           icon: const Icon(Icons.sync, size: 16),
                           label: const Text('TRIGGER OUTBOX SYNC'),
                         ),
+                        OutlinedButton.icon(
+                          onPressed: () => appState.refreshConnectedDevices(),
+                          icon: const Icon(Icons.devices, size: 16),
+                          label: const Text('REFRESH DEVICES'),
+                        ),
                       ],
+                    ),
+
+                    const SizedBox(height: 24),
+                    const Divider(),
+                    const SizedBox(height: 20),
+
+                    // CONNECTED DEVICES PANEL
+                    ValueListenableBuilder<List<ConnectedDevice>>(
+                      valueListenable: SyncService.instance.connectedDevicesNotifier,
+                      builder: (context, devices, _) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'CONNECTED DEVICES (${devices.length})',
+                                  style: const TextStyle(
+                                    fontFamily: 'serif',
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.8,
+                                    color: InstitutionalTheme.primaryNavy,
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: devices.isNotEmpty ? const Color(0xFFE6F4EA) : InstitutionalTheme.creamSurface,
+                                    border: Border.all(
+                                      color: devices.isNotEmpty ? const Color(0xFF1E7E34) : InstitutionalTheme.borderLedger,
+                                    ),
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                  child: Text(
+                                    devices.isNotEmpty ? 'REALTIME HUB ACTIVE' : 'WAITING FOR CONNECTION',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: devices.isNotEmpty ? const Color(0xFF1E7E34) : InstitutionalTheme.textMuted,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Desktop, Android, and Web terminals actively connected or recently synchronized with the server.',
+                              style: TextStyle(fontSize: 12, color: InstitutionalTheme.textBody),
+                            ),
+                            const SizedBox(height: 12),
+                            if (devices.isEmpty)
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: InstitutionalTheme.creamSurface,
+                                  border: Border.all(color: InstitutionalTheme.borderLedger),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                                child: const Text(
+                                  'No active connected devices reported yet. Click TRIGGER OUTBOX SYNC or REFRESH DEVICES to connect to your server.',
+                                  style: TextStyle(fontSize: 12, color: InstitutionalTheme.textMuted),
+                                ),
+                              )
+                            else
+                              Container(
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: InstitutionalTheme.borderLedger),
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                                child: Column(
+                                  children: devices.asMap().entries.map((entry) {
+                                    final idx = entry.key;
+                                    final dev = entry.value;
+                                    final isSelf = dev.deviceId == settings.deviceId;
+                                    return Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                      decoration: BoxDecoration(
+                                        color: idx.isEven ? Colors.white : InstitutionalTheme.creamSurface,
+                                        border: idx == 0
+                                            ? null
+                                            : const Border(top: BorderSide(color: InstitutionalTheme.borderLedger)),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          Icon(
+                                            dev.platform.toLowerCase().contains('win')
+                                                ? Icons.desktop_windows
+                                                : (dev.platform.toLowerCase().contains('android')
+                                                    ? Icons.phone_android
+                                                    : Icons.language),
+                                            size: 20,
+                                            color: InstitutionalTheme.primaryNavy,
+                                          ),
+                                          const SizedBox(width: 12),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Row(
+                                                  children: [
+                                                    Text(
+                                                      dev.deviceName,
+                                                      style: const TextStyle(
+                                                        fontWeight: FontWeight.w700,
+                                                        fontSize: 13,
+                                                        color: InstitutionalTheme.textDark,
+                                                      ),
+                                                    ),
+                                                    if (isSelf) ...[
+                                                      const SizedBox(width: 8),
+                                                      Container(
+                                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                                        decoration: BoxDecoration(
+                                                          color: InstitutionalTheme.primaryNavy,
+                                                          borderRadius: BorderRadius.circular(2),
+                                                        ),
+                                                        child: const Text(
+                                                          'THIS DEVICE',
+                                                          style: TextStyle(
+                                                            color: Colors.white,
+                                                            fontSize: 9,
+                                                            fontWeight: FontWeight.bold,
+                                                          ),
+                                                        ),
+                                                      ),
+                                                    ],
+                                                  ],
+                                                ),
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  'ID: ${dev.deviceId}  •  Platform: ${dev.platform}  •  User: ${dev.userName} (${dev.userRole})  •  IP: ${dev.ip}',
+                                                  style: const TextStyle(fontSize: 11, color: InstitutionalTheme.textMuted),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFE6F4EA),
+                                              border: Border.all(color: const Color(0xFF1E7E34)),
+                                              borderRadius: BorderRadius.circular(2),
+                                            ),
+                                            child: Text(
+                                              '${dev.transport.toUpperCase()} • ONLINE',
+                                              style: const TextStyle(
+                                                fontSize: 9.5,
+                                                fontWeight: FontWeight.bold,
+                                                color: Color(0xFF1E7E34),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  }).toList(),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                   ],
                 ),

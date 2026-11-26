@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'model_helpers.dart';
 
 class Meeting {
   final String id;
@@ -72,32 +72,18 @@ class Meeting {
   }
 
   factory Meeting.fromJson(Map<String, dynamic> json) {
-    List<String> attendees = [];
-    if (json['attendee_member_ids'] != null) {
-      if (json['attendee_member_ids'] is List) {
-        attendees = (json['attendee_member_ids'] as List).map((e) => e.toString()).toList();
-      } else if (json['attendee_member_ids'] is String) {
-        try {
-          final decoded = jsonDecode(json['attendee_member_ids']);
-          if (decoded is List) {
-            attendees = decoded.map((e) => e.toString()).toList();
-          }
-        } catch (_) {}
-      }
-    }
-
     return Meeting(
-      id: json['id'] as String,
-      meetingDate: DateTime.parse(json['meeting_date'] as String),
-      title: json['title'] as String? ?? '',
-      attendeeMemberIds: attendees,
-      status: json['status'] as String? ?? 'In Progress',
-      notes: json['notes'] as String? ?? '',
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
-      version: (json['version'] as int?) ?? 1,
-      isDeleted: (json['is_deleted'] as bool?) ?? false,
-      deviceId: json['device_id'] as String? ?? 'local',
+      id: json['id'].toString(),
+      meetingDate: parseIsoDate(json['meeting_date']),
+      title: json['title']?.toString() ?? '',
+      attendeeMemberIds: parseIdList(json['attendee_member_ids']),
+      status: json['status']?.toString() ?? 'In Progress',
+      notes: json['notes']?.toString() ?? '',
+      createdAt: parseIsoDate(json['created_at']),
+      updatedAt: parseIsoDate(json['updated_at']),
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      isDeleted: parseSqlBool(json['is_deleted'], defaultValue: false),
+      deviceId: json['device_id']?.toString() ?? 'local',
     );
   }
 }

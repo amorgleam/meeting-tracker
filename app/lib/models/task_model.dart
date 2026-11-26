@@ -1,4 +1,4 @@
-import 'dart:convert';
+import 'model_helpers.dart';
 
 class TaskItem {
   final String id;
@@ -148,41 +148,27 @@ class TaskItem {
   }
 
   factory TaskItem.fromJson(Map<String, dynamic> json) {
-    List<String> members = [];
-    if (json['assigned_member_ids'] != null) {
-      if (json['assigned_member_ids'] is List) {
-        members = (json['assigned_member_ids'] as List).map((e) => e.toString()).toList();
-      } else if (json['assigned_member_ids'] is String) {
-        try {
-          final decoded = jsonDecode(json['assigned_member_ids']);
-          if (decoded is List) {
-            members = decoded.map((e) => e.toString()).toList();
-          }
-        } catch (_) {}
-      }
-    }
-
     return TaskItem(
-      id: json['id'] as String,
-      meetingId: json['meeting_id'] as String,
-      parentTaskId: json['parent_task_id'] as String?,
-      title: json['title'] as String,
-      description: json['description'] as String? ?? '',
-      status: json['status'] as String? ?? 'Pending',
-      assignedMemberIds: members,
-      note: json['note'] as String? ?? '',
-      originMeetingDate: DateTime.parse(json['origin_meeting_date'] as String),
-      deadline: json['deadline'] != null ? DateTime.parse(json['deadline'] as String) : null,
-      isOverridden: (json['is_overridden'] as bool?) ?? false,
-      overrideReason: json['override_reason'] as String?,
-      overrideBy: json['override_by'] as String?,
-      overrideAt: json['override_at'] != null ? DateTime.parse(json['override_at'] as String) : null,
-      orderIndex: (json['order_index'] as int?) ?? 0,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
-      version: (json['version'] as int?) ?? 1,
-      isDeleted: (json['is_deleted'] as bool?) ?? false,
-      deviceId: json['device_id'] as String? ?? 'local',
+      id: json['id'].toString(),
+      meetingId: json['meeting_id'].toString(),
+      parentTaskId: json['parent_task_id']?.toString(),
+      title: json['title']?.toString() ?? 'Untitled Task',
+      description: json['description']?.toString() ?? '',
+      status: json['status']?.toString() ?? 'Pending',
+      assignedMemberIds: parseIdList(json['assigned_member_ids']),
+      note: json['note']?.toString() ?? '',
+      originMeetingDate: parseIsoDate(json['origin_meeting_date']),
+      deadline: parseNullableIsoDate(json['deadline']),
+      isOverridden: parseSqlBool(json['is_overridden'], defaultValue: false),
+      overrideReason: json['override_reason']?.toString(),
+      overrideBy: json['override_by']?.toString(),
+      overrideAt: parseNullableIsoDate(json['override_at']),
+      orderIndex: (json['order_index'] as num?)?.toInt() ?? 0,
+      createdAt: parseIsoDate(json['created_at']),
+      updatedAt: parseIsoDate(json['updated_at']),
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      isDeleted: parseSqlBool(json['is_deleted'], defaultValue: false),
+      deviceId: json['device_id']?.toString() ?? 'local',
     );
   }
 }

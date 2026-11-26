@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:excel/excel.dart';
@@ -7,8 +6,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:file_saver/file_saver.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+
+import 'file_saver_helper_stub.dart' if (dart.library.io) 'file_saver_helper_io.dart';
 
 import '../models/meeting_model.dart';
 import '../models/task_model.dart';
@@ -866,28 +865,12 @@ class ExportService {
     required MimeType mimeType,
   }) async {
     try {
-      if (!kIsWeb && (Platform.isWindows || Platform.isMacOS || Platform.isLinux)) {
-        // Save directly to user documents / downloads directory
-        final dir = await getApplicationDocumentsDirectory();
-        final exportDir = Directory(p.join(dir.path, 'MeetingTracker_Exports'));
-        if (!exportDir.existsSync()) {
-          exportDir.createSync(recursive: true);
-        }
-        final filePath = p.join(exportDir.path, filename);
-        final file = File(filePath);
-        await file.writeAsBytes(bytes);
-        debugPrint('[FILE EXPORT SUCCESS] Saved to $filePath');
-        return filePath;
-      } else {
-        // Browser or Mobile
-        await FileSaver.instance.saveFile(
-          name: filename,
-          bytes: bytes,
-          ext: ext,
-          mimeType: mimeType,
-        );
-        return filename;
-      }
+      return await saveExportedFile(
+        filename: filename,
+        bytes: bytes,
+        ext: ext,
+        mimeType: mimeType,
+      );
     } catch (e) {
       debugPrint('[FILE SAVER FALLBACK] $e');
       return filename;

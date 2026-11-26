@@ -1,3 +1,5 @@
+import 'model_helpers.dart';
+
 class ActivityLog {
   final String id;
   final String taskId;
@@ -61,23 +63,23 @@ class ActivityLog {
 
   factory ActivityLog.fromJson(Map<String, dynamic> json) {
     return ActivityLog(
-      id: json['id'] as String,
-      taskId: json['task_id'] as String,
-      meetingId: json['meeting_id'] as String?,
-      taskTitle: json['task_title'] as String? ?? 'Untitled Task',
-      oldState: json['old_state'] as String? ?? '',
-      newState: json['new_state'] as String? ?? '',
-      userId: json['user_id'] as String? ?? 'system',
-      userName: json['user_name'] as String? ?? 'System',
-      timestamp: DateTime.parse(json['timestamp'] as String),
-      note: json['note'] as String? ?? '',
-      isOverride: (json['is_override'] as bool?) ?? false,
-      overrideReason: json['override_reason'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
-      version: (json['version'] as int?) ?? 1,
-      isDeleted: (json['is_deleted'] as bool?) ?? false,
-      deviceId: json['device_id'] as String? ?? 'local',
+      id: json['id'].toString(),
+      taskId: json['task_id'].toString(),
+      meetingId: json['meeting_id']?.toString(),
+      taskTitle: json['task_title']?.toString() ?? 'Untitled Task',
+      oldState: json['old_state']?.toString() ?? '',
+      newState: json['new_state']?.toString() ?? '',
+      userId: json['user_id']?.toString() ?? 'system',
+      userName: json['user_name']?.toString() ?? 'System',
+      timestamp: parseIsoDate(json['timestamp']),
+      note: json['note']?.toString() ?? '',
+      isOverride: parseSqlBool(json['is_override'], defaultValue: false),
+      overrideReason: json['override_reason']?.toString(),
+      createdAt: parseIsoDate(json['created_at']),
+      updatedAt: parseIsoDate(json['updated_at']),
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      isDeleted: parseSqlBool(json['is_deleted'], defaultValue: false),
+      deviceId: json['device_id']?.toString() ?? 'local',
     );
   }
 }

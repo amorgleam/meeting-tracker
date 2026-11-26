@@ -169,3 +169,27 @@ test('Field-level conflict resolution: older client update does not overwrite ne
   const taskInDb = memoryStore.tasks.get('conflict-task-1');
   assert.equal(taskInDb.status, 'Completed', 'Server latest update should win');
 });
+
+test('POST /api/v1/devices/heartbeat and GET /api/v1/devices track connected devices', async () => {
+  const hbRes = await fetch(`${baseUrl}/api/v1/devices/heartbeat`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      device_id: 'win-test-99',
+      device_name: 'Windows Secretariat PC',
+      platform: 'Windows',
+      user_name: 'Director Pendelton',
+      user_role: 'Admin'
+    })
+  });
+  assert.equal(hbRes.status, 200);
+  const hbData = await hbRes.json();
+  assert.ok(hbData.count >= 1);
+
+  const listRes = await fetch(`${baseUrl}/api/v1/devices`);
+  assert.equal(listRes.status, 200);
+  const listData = await listRes.json();
+  const dev = listData.devices.find(d => d.device_id === 'win-test-99');
+  assert.ok(dev, 'Registered device should appear in connected devices list');
+  assert.equal(dev.platform, 'Windows');
+});

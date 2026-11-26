@@ -6,7 +6,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { getActiveClientCount } = require('../websocket');
+const { getActiveClientCount, getConnectedDevices } = require('../websocket');
 
 router.get('/', async (req, res) => {
   const start = Date.now();
@@ -32,7 +32,8 @@ router.get('/', async (req, res) => {
       fallback_mode: db.isInMemoryFallback()
     },
     websockets: {
-      active_clients: getActiveClientCount()
+      active_clients: getActiveClientCount(),
+      devices: getConnectedDevices()
     },
     memory: process.memoryUsage()
   });

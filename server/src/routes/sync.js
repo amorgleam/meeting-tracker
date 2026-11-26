@@ -7,12 +7,22 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const { broadcast } = require('../websocket');
+const { broadcast, touchHttpDevice } = require('../websocket');
 const { v4: uuidv4 } = require('uuid');
 
 // POST /api/v1/sync/push - Receives outbox mutations from offline clients
 router.post('/push', async (req, res) => {
-  const { mutations, device_id } = req.body;
+  const { mutations, device_id, device_name, platform, user_name, user_role } = req.body;
+
+  if (device_id) {
+    touchHttpDevice({
+      device_id,
+      device_name: device_name || req.headers['x-device-name'],
+      platform: platform || req.headers['x-device-platform'],
+      user_name: user_name || req.headers['x-user-name'],
+      user_role: user_role || req.headers['x-user-role'],
+    }, req);
+  }
 
   if (!Array.isArray(mutations)) {
     return res.status(400).json({ error: 'Bad Request', message: 'mutations array is required' });
@@ -64,6 +74,15 @@ router.post('/push', async (req, res) => {
 router.get('/pull', async (req, res) => {
   const since = req.query.since ? new Date(req.query.since) : new Date(0);
   const excludeDeviceId = req.query.device_id;
+  if (excludeDeviceId) {
+    touchHttpDevice({
+      device_id: excludeDeviceId,
+      device_name: req.query.device_name || req.headers['x-device-name'],
+      platform: req.query.platform || req.headers['x-device-platform'],
+      user_name: req.query.user_name || req.headers['x-user-name'],
+      user_role: req.query.user_role || req.headers['x-user-role'],
+    }, req);
+  }
   const now = new Date().toISOString();
 
   try {

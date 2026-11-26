@@ -16,12 +16,13 @@ const syncRoutes = require('./routes/sync');
 const meetingsRoutes = require('./routes/meetings');
 const tasksRoutes = require('./routes/tasks');
 const membersRoutes = require('./routes/members');
+const devicesRoutes = require('./routes/devices');
 
 const app = express();
 
 // Security Middleware
 app.use(helmet({
-  contentSecurityPolicy: false // Allow swagger and api previews
+  contentSecurityPolicy: false // Allow swagger, Flutter web canvas/wasm, and api previews
 }));
 
 // CORS Configuration
@@ -29,7 +30,7 @@ const allowedOrigin = process.env.CORS_ORIGIN || '*';
 app.use(cors({
   origin: allowedOrigin === '*' ? '*' : allowedOrigin.split(','),
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id']
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Device-Id', 'X-Device-Name', 'X-Device-Platform', 'X-User-Name', 'X-User-Role']
 }));
 
 // Body Parsers
@@ -92,17 +93,44 @@ app.use('/api/v1/sync', syncRoutes);
 app.use('/api/v1/meetings', meetingsRoutes);
 app.use('/api/v1/tasks', tasksRoutes);
 app.use('/api/v1/members', membersRoutes);
+app.use('/api/v1/devices', devicesRoutes);
 
-// Root route redirect to docs or health
-app.get('/', (req, res) => {
+// Gateway Metadata Route
+app.get('/api', (req, res) => {
   res.json({
     name: 'Institutional Meeting Tracker API Gateway',
     version: '1.0.0',
     documentation: '/api/docs',
     health: '/api/v1/health',
+    devices: '/api/v1/devices',
     websocket: '/ws'
   });
 });
+
+// Serve Compiled Flutter Web Portal if present in server/public
+const webPublicDir = path.join(__dirname, '..', 'public');
+const webIndexFile = path.join(webPublicDir, 'index.html');
+if (fs.existsSync(webIndexFile)) {
+  app.use(express.static(webPublicDir));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api/') || req.path === '/api' || req.path === '/ws') {
+      return next();
+    }
+    res.sendFile(webIndexFile);
+  });
+} else {
+  // Fallback Root JSON when Web build is not bundled
+  app.get('/', (req, res) => {
+    res.json({
+      name: 'Institutional Meeting Tracker API Gateway',
+      version: '1.0.0',
+      documentation: '/api/docs',
+      health: '/api/v1/health',
+      devices: '/api/v1/devices',
+      websocket: '/ws'
+    });
+  });
+}
 
 // 404 Handler
 app.use((req, res) => {

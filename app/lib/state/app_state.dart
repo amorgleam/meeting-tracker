@@ -5,6 +5,7 @@ import '../models/meeting_model.dart';
 import '../models/member_model.dart';
 import '../models/activity_log_model.dart';
 import '../models/app_settings_model.dart';
+import '../models/connected_device_model.dart';
 import '../rules/completion_rules.dart';
 import '../database/local_database.dart';
 import '../sync/sync_service.dart';
@@ -17,6 +18,7 @@ class AppState extends ChangeNotifier {
   final List<TaskItem> _tasks = [];
   final List<Member> _members = [];
   final List<ActivityLog> _activityLogs = [];
+  List<ConnectedDevice> _connectedDevices = [];
   AppSettings _settings = AppSettings();
   int _selectedNavIndex = 0;
   String _taskFilter = 'ALL'; // 'ALL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'ELIMINATED'
@@ -27,6 +29,7 @@ class AppState extends ChangeNotifier {
   List<TaskItem> get tasks => List.unmodifiable(_tasks);
   List<Member> get members => List.unmodifiable(_members);
   List<ActivityLog> get activityLogs => List.unmodifiable(_activityLogs);
+  List<ConnectedDevice> get connectedDevices => List.unmodifiable(_connectedDevices);
   AppSettings get settings => _settings;
   int get selectedNavIndex => _selectedNavIndex;
   String get taskFilter => _taskFilter;
@@ -36,24 +39,57 @@ class AppState extends ChangeNotifier {
     initDatabase();
   }
 
+  String _resolveInitialServerUrl() {
+    if (kIsWeb &&
+        Uri.base.scheme.startsWith('http') &&
+        Uri.base.host.isNotEmpty &&
+        Uri.base.host != 'localhost' &&
+        Uri.base.host != '127.0.0.1') {
+      return Uri.base.origin;
+    }
+    return AppSettings.defaultProductionServerUrl;
+  }
+
   Future<void> initDatabase() async {
     try {
       await LocalDatabase.instance.init();
+
+      final persistentDeviceId = LocalDatabase.instance.getOrCreateDeviceId();
+      final savedSettings = LocalDatabase.instance.loadSettings();
+      if (savedSettings != null) {
+        _settings = savedSettings.deviceId == 'dev-win-01'
+            ? savedSettings.copyWith(deviceId: persistentDeviceId)
+            : savedSettings;
+      } else {
+        _settings = _settings.copyWith(
+          serverUrl: _resolveInitialServerUrl(),
+          deviceId: persistentDeviceId,
+        );
+        LocalDatabase.instance.saveSettings(_settings);
+      }
+
       final dbMembers = LocalDatabase.instance.getMembers();
-      if (dbMembers.isNotEmpty) {
-        _members.clear();
-        _members.addAll(dbMembers);
-        _meetings.clear();
-        _meetings.addAll(LocalDatabase.instance.getMeetings());
-        _tasks.clear();
-        _tasks.addAll(LocalDatabase.instance.getTasks());
-        _activityLogs.clear();
-        _activityLogs.addAll(LocalDatabase.instance.getActivityLogs());
-        try {
-          _activeMeeting = _meetings.firstWhere((m) => m.status == 'In Progress');
-        } catch (_) {
-          _activeMeeting = null;
-        }
+      final dbMeetings = LocalDatabase.instance.getMeetings();
+      final dbTasks = LocalDatabase.instance.getTasks();
+      final dbLogs = LocalDatabase.instance.getActivityLogs();
+
+      if (dbMembers.isNotEmpty || dbMeetings.isNotEmpty || dbTasks.isNotEmpty) {
+        _members
+          ..clear()
+          ..addAll(dbMembers);
+        _meetings
+          ..clear()
+          ..addAll(dbMeetings);
+        _tasks
+          ..clear()
+          ..addAll(dbTasks);
+        _activityLogs
+          ..clear()
+          ..addAll(dbLogs);
+        _activeMeeting = _meetings.cast<Meeting?>().firstWhere(
+              (m) => m?.status == 'In Progress',
+              orElse: () => null,
+            );
       } else {
         for (final m in _members) {
           LocalDatabase.instance.insertMember(m, enqueueOutbox: false);
@@ -68,32 +104,59 @@ class AppState extends ChangeNotifier {
           LocalDatabase.instance.insertActivityLog(a, enqueueOutbox: false);
         }
       }
-      SyncService.instance.configure(
-        serverBaseUrl: _settings.serverUrl,
-        deviceId: _settings.deviceId,
-        onDataChangedCallback: _reloadFromDatabase,
-      );
+
+      _configureSyncService();
       SyncService.instance.startPeriodicSync();
+      SyncService.instance.sync();
       notifyListeners();
     } catch (e) {
       debugPrint('LocalDatabase init fallback: $e');
     }
   }
 
+  void _configureSyncService() {
+    final platform = LocalDatabase.instance.getPlatformLabel();
+    SyncService.instance.configure(
+      serverBaseUrl: _settings.serverUrl,
+      deviceId: _settings.deviceId,
+      deviceName: '$platform Client (${_settings.deviceId})',
+      platform: platform,
+      userName: _settings.currentUserName,
+      userRole: _settings.userRole,
+      onDataChangedCallback: _reloadFromDatabase,
+      onDevicesUpdatedCallback: _onDevicesUpdated,
+    );
+  }
+
+  void _onDevicesUpdated(List<ConnectedDevice> devices) {
+    _connectedDevices = devices;
+    notifyListeners();
+  }
+
+  Future<void> refreshConnectedDevices() async {
+    final devices = await SyncService.instance.fetchConnectedDevices();
+    _connectedDevices = devices;
+    notifyListeners();
+  }
+
   void _reloadFromDatabase() {
-    _members.clear();
-    _members.addAll(LocalDatabase.instance.getMembers());
-    _meetings.clear();
-    _meetings.addAll(LocalDatabase.instance.getMeetings());
-    _tasks.clear();
-    _tasks.addAll(LocalDatabase.instance.getTasks());
-    _activityLogs.clear();
-    _activityLogs.addAll(LocalDatabase.instance.getActivityLogs());
-    try {
-      _activeMeeting = _meetings.firstWhere((m) => m.status == 'In Progress');
-    } catch (_) {
-      _activeMeeting = null;
-    }
+    if (!LocalDatabase.instance.isReady) return;
+    _members
+      ..clear()
+      ..addAll(LocalDatabase.instance.getMembers());
+    _meetings
+      ..clear()
+      ..addAll(LocalDatabase.instance.getMeetings());
+    _tasks
+      ..clear()
+      ..addAll(LocalDatabase.instance.getTasks());
+    _activityLogs
+      ..clear()
+      ..addAll(LocalDatabase.instance.getActivityLogs());
+    _activeMeeting = _meetings.cast<Meeting?>().firstWhere(
+          (m) => m?.status == 'In Progress',
+          orElse: () => null,
+        );
     notifyListeners();
   }
 
@@ -109,24 +172,42 @@ class AppState extends ChangeNotifier {
 
   // Settings
   void updateCompletionRule(CompletionRuleMode mode) {
-    _settings = _settings.copyWith(completionRule: mode);
-    notifyListeners();
+    updateSettings(_settings.copyWith(completionRule: mode));
   }
 
   void updateUserRole(String role) {
-    _settings = _settings.copyWith(userRole: role);
-    notifyListeners();
+    updateSettings(_settings.copyWith(userRole: role));
   }
 
   void updateSettings(AppSettings newSettings) {
     _settings = newSettings;
-    SyncService.instance.configure(
-      serverBaseUrl: _settings.serverUrl,
-      deviceId: _settings.deviceId,
-      onDataChangedCallback: _reloadFromDatabase,
-    );
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveSettings(_settings);
+    }
+    _configureSyncService();
     SyncService.instance.sync();
     notifyListeners();
+  }
+
+  void _persistMeeting(Meeting meeting) {
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.insertMeeting(meeting);
+      SyncService.instance.scheduleImmediateSync();
+    }
+  }
+
+  void _persistTask(TaskItem task) {
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.insertTask(task);
+      SyncService.instance.scheduleImmediateSync();
+    }
+  }
+
+  void _persistMember(Member member) {
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.insertMember(member);
+      SyncService.instance.scheduleImmediateSync();
+    }
   }
 
   // --- Meeting Operations ---
@@ -144,9 +225,7 @@ class AppState extends ChangeNotifier {
     _activeMeeting = meeting;
     _meetings.insert(0, meeting);
     _selectedNavIndex = 0; // Go to Active Meeting
-    try {
-      LocalDatabase.instance.insertMeeting(meeting);
-    } catch (_) {}
+    _persistMeeting(meeting);
     notifyListeners();
     return meeting;
   }
@@ -158,10 +237,10 @@ class AppState extends ChangeNotifier {
         _meetings[idx] = _activeMeeting!.copyWith(
           status: 'Adjourned',
           updatedAt: DateTime.now(),
+          version: _activeMeeting!.version + 1,
+          deviceId: _settings.deviceId,
         );
-        try {
-          LocalDatabase.instance.insertMeeting(_meetings[idx]);
-        } catch (_) {}
+        _persistMeeting(_meetings[idx]);
       }
       _activeMeeting = null;
       notifyListeners();
@@ -204,9 +283,7 @@ class AppState extends ChangeNotifier {
     );
 
     _tasks.add(task);
-    try {
-      LocalDatabase.instance.insertTask(task);
-    } catch (_) {}
+    _persistTask(task);
 
     // Record in activity log
     _logActivity(
@@ -259,9 +336,7 @@ class AppState extends ChangeNotifier {
     );
 
     _tasks.add(subtask);
-    try {
-      LocalDatabase.instance.insertTask(subtask);
-    } catch (_) {}
+    _persistTask(subtask);
 
     _logActivity(
       taskId: subtask.id,
@@ -347,12 +422,11 @@ class AppState extends ChangeNotifier {
           overrideAt: DateTime.now(),
           updatedAt: DateTime.now(),
           version: task.version + 1,
+          deviceId: _settings.deviceId,
         );
 
         _tasks[taskIndex] = updatedTask;
-        try {
-          LocalDatabase.instance.insertTask(updatedTask);
-        } catch (_) {}
+        _persistTask(updatedTask);
 
         _logActivity(
           taskId: task.id,
@@ -376,12 +450,11 @@ class AppState extends ChangeNotifier {
       isOverridden: false,
       updatedAt: DateTime.now(),
       version: task.version + 1,
+      deviceId: _settings.deviceId,
     );
 
     _tasks[taskIndex] = updatedTask;
-    try {
-      LocalDatabase.instance.insertTask(updatedTask);
-    } catch (_) {}
+    _persistTask(updatedTask);
 
     _logActivity(
       taskId: task.id,
@@ -403,10 +476,9 @@ class AppState extends ChangeNotifier {
         note: note.trim(),
         updatedAt: DateTime.now(),
         version: _tasks[idx].version + 1,
+        deviceId: _settings.deviceId,
       );
-      try {
-        LocalDatabase.instance.insertTask(_tasks[idx]);
-      } catch (_) {}
+      _persistTask(_tasks[idx]);
       _logActivity(
         taskId: taskId,
         taskTitle: _tasks[idx].title,
@@ -428,10 +500,9 @@ class AppState extends ChangeNotifier {
         clearDeadline: newDeadline == null,
         updatedAt: DateTime.now(),
         version: task.version + 1,
+        deviceId: _settings.deviceId,
       );
-      try {
-        LocalDatabase.instance.insertTask(_tasks[idx]);
-      } catch (_) {}
+      _persistTask(_tasks[idx]);
 
       final deadlineStr = newDeadline != null
           ? '${newDeadline.year}-${newDeadline.month.toString().padLeft(2, '0')}-${newDeadline.day.toString().padLeft(2, '0')}'
@@ -467,9 +538,7 @@ class AppState extends ChangeNotifier {
       deviceId: _settings.deviceId,
     );
     _members.add(member);
-    try {
-      LocalDatabase.instance.insertMember(member);
-    } catch (_) {}
+    _persistMember(member);
     notifyListeners();
     return member;
   }
@@ -480,10 +549,9 @@ class AppState extends ChangeNotifier {
       _members[idx] = updated.copyWith(
         updatedAt: DateTime.now(),
         version: _members[idx].version + 1,
+        deviceId: _settings.deviceId,
       );
-      try {
-        LocalDatabase.instance.insertMember(_members[idx]);
-      } catch (_) {}
+      _persistMember(_members[idx]);
       notifyListeners();
     }
   }
@@ -495,10 +563,9 @@ class AppState extends ChangeNotifier {
         isActive: !_members[idx].isActive,
         updatedAt: DateTime.now(),
         version: _members[idx].version + 1,
+        deviceId: _settings.deviceId,
       );
-      try {
-        LocalDatabase.instance.insertMember(_members[idx]);
-      } catch (_) {}
+      _persistMember(_members[idx]);
       notifyListeners();
     }
   }
@@ -510,11 +577,10 @@ class AppState extends ChangeNotifier {
         isDeleted: true,
         updatedAt: DateTime.now(),
         version: _members[idx].version + 1,
+        deviceId: _settings.deviceId,
       );
       _members.removeAt(idx);
-      try {
-        LocalDatabase.instance.insertMember(toDelete);
-      } catch (_) {}
+      _persistMember(toDelete);
       notifyListeners();
     }
   }
@@ -613,26 +679,28 @@ class AppState extends ChangeNotifier {
     String? overrideReason,
     String? meetingId,
   }) {
-    _activityLogs.insert(
-      0,
-      ActivityLog(
-        id: _uuid.v4(),
-        taskId: taskId,
-        meetingId: meetingId,
-        taskTitle: taskTitle,
-        oldState: oldState,
-        newState: newState,
-        userId: _settings.currentUserId,
-        userName: _settings.currentUserName,
-        timestamp: DateTime.now(),
-        note: note,
-        isOverride: isOverride,
-        overrideReason: overrideReason,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-        deviceId: _settings.deviceId,
-      ),
+    final entry = ActivityLog(
+      id: _uuid.v4(),
+      taskId: taskId,
+      meetingId: meetingId,
+      taskTitle: taskTitle,
+      oldState: oldState,
+      newState: newState,
+      userId: _settings.currentUserId,
+      userName: _settings.currentUserName,
+      timestamp: DateTime.now(),
+      note: note,
+      isOverride: isOverride,
+      overrideReason: overrideReason,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+      deviceId: _settings.deviceId,
     );
+    _activityLogs.insert(0, entry);
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.insertActivityLog(entry);
+      SyncService.instance.scheduleImmediateSync();
+    }
   }
 
   // Seed Institutional Demo Data

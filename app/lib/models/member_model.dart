@@ -1,3 +1,5 @@
+import 'model_helpers.dart';
+
 class Member {
   final String id;
   final String name;
@@ -66,16 +68,16 @@ class Member {
 
   factory Member.fromJson(Map<String, dynamic> json) {
     return Member(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      email: json['email'] as String? ?? '',
-      designation: json['designation'] as String? ?? 'Member',
-      isActive: (json['is_active'] as bool?) ?? true,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
-      version: (json['version'] as int?) ?? 1,
-      isDeleted: (json['is_deleted'] as bool?) ?? false,
-      deviceId: json['device_id'] as String? ?? 'local',
+      id: json['id'].toString(),
+      name: json['name']?.toString() ?? 'Unnamed Member',
+      email: json['email']?.toString() ?? '',
+      designation: json['designation']?.toString() ?? 'Member',
+      isActive: parseSqlBool(json['is_active'], defaultValue: true),
+      createdAt: parseIsoDate(json['created_at']),
+      updatedAt: parseIsoDate(json['updated_at']),
+      version: (json['version'] as num?)?.toInt() ?? 1,
+      isDeleted: parseSqlBool(json['is_deleted'], defaultValue: false),
+      deviceId: json['device_id']?.toString() ?? 'local',
     );
   }
 }
