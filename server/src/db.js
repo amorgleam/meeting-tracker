@@ -19,7 +19,8 @@ const memoryStore = {
   members: new Map(),
   meetings: new Map(),
   tasks: new Map(),
-  activity_logs: new Map()
+  activity_logs: new Map(),
+  account_activities: new Map()
 };
 
 const databaseUrl = process.env.DATABASE_URL;

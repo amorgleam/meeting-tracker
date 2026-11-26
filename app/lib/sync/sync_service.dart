@@ -10,8 +10,26 @@ import '../models/member_model.dart';
 import '../models/activity_log_model.dart';
 import '../models/app_settings_model.dart';
 import '../models/connected_device_model.dart';
+import '../models/user_account_model.dart';
+import '../models/account_activity_model.dart';
 
 enum SyncStatus { idle, syncing, synced, offline, error }
+
+class AuthLoginResult {
+  final bool success;
+  final bool networkUnavailable;
+  final String? token;
+  final UserAccount? user;
+  final String? errorMessage;
+
+  const AuthLoginResult({
+    required this.success,
+    this.networkUnavailable = false,
+    this.token,
+    this.user,
+    this.errorMessage,
+  });
+}
 
 class SyncService {
   static SyncService? _instance;
@@ -418,5 +436,186 @@ class SyncService {
   void _updateStatus(SyncStatus newStatus) {
     _status = newStatus;
     statusNotifier.value = newStatus;
+  }
+
+  // --- Institutional Account Authentication & Admin Account Management ---
+
+  Future<AuthLoginResult> loginWithPassword(String identifier, String password) async {
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/auth/login');
+      final response = await http
+          .post(
+            url,
+            headers: _deviceHeaders(includeContentType: true),
+            body: jsonEncode({
+              'email': identifier.trim(),
+              'password': password,
+              'device_id': _deviceId,
+              'platform': _platform,
+            }),
+          )
+          .timeout(const Duration(seconds: 45));
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200 && body['token'] != null && body['user'] != null) {
+        final token = body['token'] as String;
+        final userMap = Map<String, dynamic>.from(body['user'] as Map);
+        final account = UserAccount.fromJson(userMap).copyWith(
+          offlinePasswordHash: UserAccount.hashPasswordOffline(
+            userMap['email']?.toString() ?? identifier,
+            password,
+          ),
+        );
+        _authToken = token;
+        return AuthLoginResult(success: true, token: token, user: account);
+      }
+
+      return AuthLoginResult(
+        success: false,
+        errorMessage: body['message']?.toString() ?? 'Invalid email/username or password.',
+      );
+    } catch (e) {
+      debugPrint('[AUTH LOGIN NETWORK ERROR] $e');
+      return AuthLoginResult(
+        success: false,
+        networkUnavailable: true,
+        errorMessage: 'Server unreachable ($e). Checking offline registry...',
+      );
+    }
+  }
+
+  Future<List<UserAccount>> fetchAccounts() async {
+    if (_authToken == null) return [];
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/auth/accounts');
+      final response = await http.get(url, headers: _deviceHeaders()).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final rawList = (body['accounts'] as List?) ?? [];
+        return rawList
+            .map((e) => UserAccount.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[FETCH ACCOUNTS ERROR] $e');
+    }
+    return [];
+  }
+
+  Future<String?> upsertMemberAccount({
+    required String email,
+    required String name,
+    required String password,
+    String? username,
+    String? memberId,
+  }) async {
+    if (_authToken == null) return 'Saved locally (offline session). Re-login online as Admin to sync to cloud.';
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/auth/accounts');
+      final response = await http
+          .post(
+            url,
+            headers: _deviceHeaders(includeContentType: true),
+            body: jsonEncode({
+              'email': email.trim(),
+              if (username != null && username.trim().isNotEmpty) 'username': username.trim(),
+              'name': name.trim(),
+              'password': password,
+              'role': 'SECRETARY',
+              if (memberId != null) 'member_id': memberId,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200 || response.statusCode == 201) {
+        return null; // Success
+      }
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return body['message']?.toString() ?? 'Failed to save member account.';
+    } catch (e) {
+      return 'Offline: member login saved locally ($e).';
+    }
+  }
+
+  Future<String?> updateAccountPassword({
+    required String accountOrMemberId,
+    required String newPassword,
+  }) async {
+    if (_authToken == null) return 'Saved locally (offline session). Re-login online as Admin to sync to cloud.';
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/auth/accounts/$accountOrMemberId/password');
+      final response = await http
+          .put(
+            url,
+            headers: _deviceHeaders(includeContentType: true),
+            body: jsonEncode({'new_password': newPassword}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) return null;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return body['message']?.toString() ?? 'Password update failed.';
+    } catch (e) {
+      return 'Server offline ($e). Updated locally.';
+    }
+  }
+
+  Future<String?> updateAdminPassword(String newPassword) async {
+    if (_authToken == null) return 'Saved locally (offline session). Re-login online as Admin to sync to cloud.';
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/auth/admin-password');
+      final response = await http
+          .put(
+            url,
+            headers: _deviceHeaders(includeContentType: true),
+            body: jsonEncode({'new_password': newPassword}),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) return null;
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      return body['message']?.toString() ?? 'Admin password update failed.';
+    } catch (e) {
+      return 'Server offline ($e). Updated locally.';
+    }
+  }
+
+  Future<List<AccountActivity>> fetchAccountActivities() async {
+    if (_authToken == null) return [];
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/account-activities');
+      final response = await http.get(url, headers: _deviceHeaders()).timeout(const Duration(seconds: 30));
+      if (response.statusCode == 200) {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        final rawList = (body['activities'] as List?) ?? [];
+        return rawList
+            .map((e) => AccountActivity.fromJson(Map<String, dynamic>.from(e as Map)))
+            .toList();
+      }
+    } catch (e) {
+      debugPrint('[FETCH ACCOUNT ACTIVITIES ERROR] $e');
+    }
+    return [];
+  }
+
+  Future<void> postAccountActivity({
+    required String actionType,
+    String targetInfo = '',
+    String details = '',
+  }) async {
+    if (_authToken == null) return;
+    try {
+      final url = Uri.parse('$_serverBaseUrl/api/v1/account-activities');
+      await http
+          .post(
+            url,
+            headers: _deviceHeaders(includeContentType: true),
+            body: jsonEncode({
+              'action_type': actionType,
+              'target_info': targetInfo,
+              'details': details,
+              'device_id': _deviceId,
+              'platform': _platform,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+    } catch (_) {}
   }
 }

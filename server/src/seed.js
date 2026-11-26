@@ -19,6 +19,7 @@ async function runSeed() {
   db.memoryStore.users.set('usr-admin-001', {
     id: 'usr-admin-001',
     email: 'admin@institution.gov',
+    username: 'admin',
     password_hash: passwordHash,
     name: 'Director Arthur Pendelton',
     role: 'ADMIN',
@@ -31,6 +32,7 @@ async function runSeed() {
   db.memoryStore.users.set('usr-sec-002', {
     id: 'usr-sec-002',
     email: 'secretary@institution.gov',
+    username: 'secretary',
     password_hash: secHash,
     name: 'Secretary Eleanor Vance',
     role: 'SECRETARY',
@@ -43,6 +45,7 @@ async function runSeed() {
   db.memoryStore.users.set('usr-view-003', {
     id: 'usr-view-003',
     email: 'viewer@institution.gov',
+    username: 'viewer',
     password_hash: viewHash,
     name: 'Auditor Marcus Brody',
     role: 'VIEWER',
@@ -154,6 +157,34 @@ async function runSeed() {
       console.log('[SEED] SQL seed data applied.');
     } catch (err) {
       console.log('[SEED] Direct SQL skipped or handled by memory store:', err.message);
+    }
+  }
+
+  // Ensure default seeded user hashes in PostgreSQL are real working bcrypt hashes
+  // (only updates if missing or still holding the legacy migration placeholder hash)
+  const legacyPlaceholderHash = '$2a$10$Gpvq1b/C8R4lVf6BfI6l0uA9oE9X0GqM5Q.Y1lB3eE0Qj2B8gXn1S';
+  const defaultUsers = [
+    { id: 'usr-admin-001', email: 'admin@institution.gov', username: 'admin', hash: passwordHash, name: 'Director Arthur Pendelton', role: 'ADMIN' },
+    { id: 'usr-sec-002', email: 'secretary@institution.gov', username: 'secretary', hash: secHash, name: 'Secretary Eleanor Vance', role: 'SECRETARY' },
+    { id: 'usr-view-003', email: 'viewer@institution.gov', username: 'viewer', hash: viewHash, name: 'Auditor Marcus Brody', role: 'VIEWER' },
+  ];
+  if (!db.isInMemoryFallback()) {
+    for (const u of defaultUsers) {
+      try {
+        await db.query(
+          `INSERT INTO users (id, email, username, password_hash, name, role, is_active, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+           ON CONFLICT (email) DO UPDATE SET
+             username = COALESCE(users.username, EXCLUDED.username),
+             password_hash = CASE
+               WHEN users.password_hash = $7 THEN EXCLUDED.password_hash
+               ELSE users.password_hash
+             END;`,
+          [u.id, u.email, u.username, u.hash, u.name, u.role, legacyPlaceholderHash]
+        );
+      } catch (err) {
+        console.warn(`[SEED USER WARNING] ${u.email}:`, err.message);
+      }
     }
   }
 

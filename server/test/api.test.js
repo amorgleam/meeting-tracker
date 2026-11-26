@@ -193,3 +193,66 @@ test('POST /api/v1/devices/heartbeat and GET /api/v1/devices track connected dev
   assert.ok(dev, 'Registered device should appear in connected devices list');
   assert.equal(dev.platform, 'Windows');
 });
+
+test('Admin can provision Member account, change passwords, and view Account Activities; Member cannot change passwords', async () => {
+  // 1. Login as Admin
+  const adminLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin', password: 'Admin@123' })
+  });
+  assert.equal(adminLogin.status, 200);
+  const { token: adminToken } = await adminLogin.json();
+
+  // 2. Admin provisions member account during enrollment
+  const createRes = await fetch(`${baseUrl}/api/v1/auth/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+    body: JSON.stringify({
+      email: 'member.jane@institution.gov',
+      name: 'Jane Doe',
+      password: 'InitPassword1',
+      member_id: 'mem-jane-01'
+    })
+  });
+  assert.equal(createRes.status, 201);
+
+  // 3. Member can sign in with email or username
+  const memberLogin = await fetch(`${baseUrl}/api/v1/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'member.jane', password: 'InitPassword1' })
+  });
+  assert.equal(memberLogin.status, 200);
+  const { token: memberToken, user: memberUser } = await memberLogin.json();
+
+  // 4. Member CANNOT view account activities or reset passwords (403 Forbidden)
+  const deniedActivities = await fetch(`${baseUrl}/api/v1/account-activities`, {
+    headers: { 'Authorization': `Bearer ${memberToken}` }
+  });
+  assert.equal(deniedActivities.status, 403);
+
+  const deniedPwReset = await fetch(`${baseUrl}/api/v1/auth/accounts/${memberUser.id}/password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${memberToken}` },
+    body: JSON.stringify({ new_password: 'HackedPassword' })
+  });
+  assert.equal(deniedPwReset.status, 403);
+
+  // 5. Admin resets Member password
+  const resetRes = await fetch(`${baseUrl}/api/v1/auth/accounts/${memberUser.id}/password`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${adminToken}` },
+    body: JSON.stringify({ new_password: 'UpdatedPassword2' })
+  });
+  assert.equal(resetRes.status, 200);
+
+  // 6. Admin can read Account Activities
+  const actRes = await fetch(`${baseUrl}/api/v1/account-activities`, {
+    headers: { 'Authorization': `Bearer ${adminToken}` }
+  });
+  assert.equal(actRes.status, 200);
+  const actData = await actRes.json();
+  assert.ok(actData.activities.some(a => a.action_type === 'MEMBER_ENROLLED'));
+  assert.ok(actData.activities.some(a => a.action_type === 'PASSWORD_CHANGED'));
+});

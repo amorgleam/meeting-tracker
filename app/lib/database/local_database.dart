@@ -6,6 +6,8 @@ import '../models/meeting_model.dart';
 import '../models/member_model.dart';
 import '../models/activity_log_model.dart';
 import '../models/app_settings_model.dart';
+import '../models/user_account_model.dart';
+import '../models/account_activity_model.dart';
 import 'db_backend_interface.dart';
 import 'db_backend_web.dart' if (dart.library.io) 'db_backend_io.dart';
 
@@ -126,6 +128,43 @@ class LocalDatabase {
   void saveSettings(AppSettings settings) {
     if (!_isReady) return;
     _backend.setMetadata('app_settings_json', jsonEncode(settings.toJson()));
+  }
+
+  List<UserAccount> loadAccounts() {
+    if (!_isReady) return [];
+    final raw = _backend.getMetadata('local_accounts_json');
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list.map((e) => UserAccount.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void saveAccounts(List<UserAccount> accounts) {
+    if (!_isReady) return;
+    _backend.setMetadata('local_accounts_json', jsonEncode(accounts.map((a) => a.toJson()).toList()));
+  }
+
+  List<AccountActivity> loadAccountActivities() {
+    if (!_isReady) return [];
+    final raw = _backend.getMetadata('local_account_activities_json');
+    if (raw == null || raw.isEmpty) return [];
+    try {
+      final list = jsonDecode(raw) as List;
+      return list.map((e) => AccountActivity.fromJson(Map<String, dynamic>.from(e as Map))).toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void saveAccountActivities(List<AccountActivity> items) {
+    if (!_isReady) return;
+    _backend.setMetadata(
+      'local_account_activities_json',
+      jsonEncode(items.take(250).map((a) => a.toJson()).toList()),
+    );
   }
 
   void close() {

@@ -17,6 +17,7 @@ const meetingsRoutes = require('./routes/meetings');
 const tasksRoutes = require('./routes/tasks');
 const membersRoutes = require('./routes/members');
 const devicesRoutes = require('./routes/devices');
+const accountActivitiesRoutes = require('./routes/accountActivities');
 
 const app = express();
 
@@ -94,6 +95,7 @@ app.use('/api/v1/meetings', meetingsRoutes);
 app.use('/api/v1/tasks', tasksRoutes);
 app.use('/api/v1/members', membersRoutes);
 app.use('/api/v1/devices', devicesRoutes);
+app.use('/api/v1/account-activities', accountActivitiesRoutes);
 
 // Gateway Metadata Route
 app.get('/api', (req, res) => {

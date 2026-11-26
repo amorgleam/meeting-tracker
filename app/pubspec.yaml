@@ -29,6 +29,7 @@ dependencies:
   file_saver: ^0.2.14
   shared_preferences: ^2.3.2
   file_picker: ^13.4.1
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:

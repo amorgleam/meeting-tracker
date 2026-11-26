@@ -65,51 +65,52 @@ class InstitutionalAppBar extends StatelessWidget implements PreferredSizeWidget
       ),
       actions: [
         if (actions != null) ...actions!,
-        // Connected Devices & Sync Status indicator
-        ValueListenableBuilder<List<ConnectedDevice>>(
-          valueListenable: SyncService.instance.connectedDevicesNotifier,
-          builder: (context, devices, _) {
-            final count = devices.length;
-            return InkWell(
-              onTap: () => _showConnectedDevicesDialog(context, appState, devices),
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                decoration: BoxDecoration(
-                  color: const Color(0x22FFFFFF),
-                  border: Border.all(
-                    color: count > 0 ? const Color(0xFF4ADE80) : InstitutionalTheme.goldAccent,
-                    width: 1,
+        // Connected Devices & Sync Status indicator (Admin Only - server details hidden from members)
+        if (appState.isAdmin)
+          ValueListenableBuilder<List<ConnectedDevice>>(
+            valueListenable: SyncService.instance.connectedDevicesNotifier,
+            builder: (context, devices, _) {
+              final count = devices.length;
+              return InkWell(
+                onTap: () => _showConnectedDevicesDialog(context, appState, devices),
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: const Color(0x22FFFFFF),
+                    border: Border.all(
+                      color: count > 0 ? const Color(0xFF4ADE80) : InstitutionalTheme.goldAccent,
+                      width: 1,
+                    ),
+                    borderRadius: BorderRadius.circular(2),
                   ),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.devices,
-                      size: 13,
-                      color: count > 0 ? const Color(0xFF4ADE80) : InstitutionalTheme.goldLight,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      '$count ${count == 1 ? 'DEVICE' : 'DEVICES'}',
-                      style: const TextStyle(
-                        color: InstitutionalTheme.creamBackground,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.devices,
+                        size: 13,
+                        color: count > 0 ? const Color(0xFF4ADE80) : InstitutionalTheme.goldLight,
                       ),
-                    ),
-                  ],
+                      const SizedBox(width: 5),
+                      Text(
+                        '$count ${count == 1 ? 'DEVICE' : 'DEVICES'}',
+                        style: const TextStyle(
+                          color: InstitutionalTheme.creamBackground,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            );
-          },
-        ),
+              );
+            },
+          ),
         // Role pill
         Container(
-          margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 8),
+          margin: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
             color: const Color(0x33B8923A),
@@ -118,7 +119,7 @@ class InstitutionalAppBar extends StatelessWidget implements PreferredSizeWidget
           ),
           child: Center(
             child: Text(
-              'ROLE: ${appState.settings.userRole.toUpperCase()}',
+              appState.isAdmin ? 'ADMIN' : 'MEMBER',
               style: const TextStyle(
                 color: InstitutionalTheme.goldLight,
                 fontSize: 11,
@@ -128,7 +129,12 @@ class InstitutionalAppBar extends StatelessWidget implements PreferredSizeWidget
             ),
           ),
         ),
-        const SizedBox(width: 12),
+        IconButton(
+          tooltip: 'Sign Out',
+          onPressed: () => appState.signOut(),
+          icon: const Icon(Icons.logout, color: InstitutionalTheme.creamBackground, size: 19),
+        ),
+        const SizedBox(width: 6),
       ],
     );
   }

@@ -4,8 +4,12 @@ import 'package:meeting_tracker/models/meeting_model.dart';
 import 'package:meeting_tracker/models/task_model.dart';
 import 'package:meeting_tracker/models/activity_log_model.dart';
 import 'package:meeting_tracker/models/app_settings_model.dart';
+import 'package:meeting_tracker/models/user_account_model.dart';
+import 'package:meeting_tracker/state/app_state.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   group('Persistence & SQLite Row Serialization Tests', () {
     test('Models safely deserialize SQLite INTEGER (0/1) booleans and JSON strings', () {
       final now = DateTime(2026, 11, 25, 10, 30).toIso8601String();
@@ -107,6 +111,56 @@ void main() {
       expect(restored.enableLetterhead, isTrue);
       expect(restored.primaryColorHex, '#5B1E31');
       expect(restored.deviceId, 'win-abcd1234');
+    });
+
+    test('UserAccount offline password hashing verifies correctly and Member cannot alter passwords', () async {
+      final hash = UserAccount.hashPasswordOffline('alice@institution.gov', 'SecretPass99');
+      final memberAcc = UserAccount(
+        id: 'usr-alice',
+        email: 'alice@institution.gov',
+        username: 'alice',
+        name: 'Alice',
+        role: 'SECRETARY',
+        offlinePasswordHash: hash,
+      );
+      expect(memberAcc.isAdmin, isFalse);
+      expect(memberAcc.verifyPasswordOffline('SecretPass99'), isTrue);
+      expect(memberAcc.verifyPasswordOffline('WrongPass'), isFalse);
+
+      // Verify Admin password & Member enrollment rejection for non-Admin
+      final appState = AppState(initialAuthenticatedForTest: true);
+      appState.updateSettings(appState.settings.copyWith(serverUrl: 'http://127.0.0.1:1'));
+      final signInErr = await appState.signIn('admin', 'Admin@123');
+      // On unit test offline environment, admin signs in cleanly
+      expect(signInErr, isNull);
+      expect(appState.isAdmin, isTrue);
+
+      // Enroll a new member account as Admin
+      await appState.enrollOrUpdateMemberAccount(
+        name: 'Bob Member',
+        email: 'bob@institution.gov',
+        designation: 'Member',
+        password: 'BobPassword1',
+      );
+      await appState.signOut();
+      expect(appState.isAuthenticated, isFalse);
+
+      // Member signs in using username 'bob' defined during enrollment
+      final memberSignInErr = await appState.signIn('bob', 'BobPassword1');
+      expect(memberSignInErr, isNull);
+      expect(appState.isAuthenticated, isTrue);
+      expect(appState.isAdmin, isFalse);
+
+      // Member CANNOT change Admin password or Member passwords
+      final denyAdminPw = await appState.changeAdminPassword('Hacked123');
+      expect(denyAdminPw, contains('Unauthorized'));
+      final denyEnroll = await appState.enrollOrUpdateMemberAccount(
+        name: 'Eve',
+        email: 'eve@institution.gov',
+        designation: 'Member',
+        password: 'EvePassword1',
+      );
+      expect(denyEnroll, contains('Unauthorized'));
     });
   });
 }

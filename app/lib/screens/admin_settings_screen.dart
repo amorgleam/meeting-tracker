@@ -21,6 +21,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   late TextEditingController _orgSubtitleController;
   late TextEditingController _primaryHexController;
   late TextEditingController _accentHexController;
+  final TextEditingController _newAdminPwController = TextEditingController();
+  final TextEditingController _confirmAdminPwController = TextEditingController();
 
   @override
   void initState() {
@@ -45,6 +47,8 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _orgSubtitleController.dispose();
     _primaryHexController.dispose();
     _accentHexController.dispose();
+    _newAdminPwController.dispose();
+    _confirmAdminPwController.dispose();
     super.dispose();
   }
 
@@ -139,9 +143,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       child: RadioListTile<CompletionRuleMode>(
                         value: CompletionRuleMode.strict,
                         groupValue: settings.completionRule,
-                        onChanged: (val) {
-                          if (val != null) appState.updateCompletionRule(val);
-                        },
+                        onChanged: appState.isAdmin
+                            ? (val) {
+                                if (val != null) appState.updateCompletionRule(val);
+                              }
+                            : null,
                         title: const Row(
                           children: [
                             Text(
@@ -175,9 +181,11 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       child: RadioListTile<CompletionRuleMode>(
                         value: CompletionRuleMode.relaxed,
                         groupValue: settings.completionRule,
-                        onChanged: (val) {
-                          if (val != null) appState.updateCompletionRule(val);
-                        },
+                        onChanged: appState.isAdmin
+                            ? (val) {
+                                if (val != null) appState.updateCompletionRule(val);
+                              }
+                            : null,
                         title: const Text(
                           'MODE B: RELAXED (PERMISSIVE RESOLUTION)',
                           style: TextStyle(fontFamily: 'serif', fontSize: 13.5, fontWeight: FontWeight.w700, color: InstitutionalTheme.primaryNavy),
@@ -227,47 +235,91 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       ),
                     ),
 
-                    const SizedBox(height: 28),
-                    const Divider(),
-                    const SizedBox(height: 24),
+                    if (appState.isAdmin) ...[
+                      const SizedBox(height: 28),
+                      const Divider(),
+                      const SizedBox(height: 24),
 
-                    // ACTIVE USER ROLE SIMULATION
-                    const Text(
-                      'ACTIVE USER IDENTITY & PERMISSION ROLE',
-                      style: TextStyle(
-                        fontFamily: 'serif',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
-                        color: InstitutionalTheme.primaryNavy,
+                      // ADMIN ACCOUNT PASSWORD CONTROL (STRICTLY ADMIN ONLY)
+                      const Text(
+                        'ADMINISTRATOR PASSWORD & ACCOUNT SECURITY',
+                        style: TextStyle(
+                          fontFamily: 'serif',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: InstitutionalTheme.primaryNavy,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Select active testing role to verify authorization boundaries (Viewer vs Secretary vs Admin).',
-                      style: TextStyle(fontSize: 12.5, color: InstitutionalTheme.textBody),
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: ['Admin', 'Secretary', 'Viewer'].map((role) {
-                        final isCurrent = settings.userRole.toLowerCase() == role.toLowerCase();
-                        return Padding(
-                          padding: const EdgeInsets.only(right: 12),
-                          child: ChoiceChip(
-                            label: Text(role.toUpperCase()),
-                            selected: isCurrent,
-                            selectedColor: InstitutionalTheme.primaryNavy,
-                            labelStyle: TextStyle(
-                              color: isCurrent ? Colors.white : InstitutionalTheme.textDark,
-                              fontWeight: FontWeight.bold,
+                      const SizedBox(height: 6),
+                      Text(
+                        'Signed in as Admin (${appState.currentUserEmail}). Only Admin can edit the Admin password or Member account passwords (via Members Roster).',
+                        style: const TextStyle(fontSize: 12.5, color: InstitutionalTheme.textBody),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: TextField(
+                              controller: _newAdminPwController,
+                              obscureText: true,
+                              decoration: const InputDecoration(
+                                labelText: 'New Admin Password',
+                                hintText: 'Minimum 4 characters',
+                              ),
                             ),
-                            onSelected: (val) {
-                              if (val) appState.updateUserRole(role);
-                            },
                           ),
-                        );
-                      }).toList(),
-                    ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: TextField(
+                              controller: _confirmAdminPwController,
+                              obscureText: true,
+                              decoration: const InputDecoration(
+                                labelText: 'Confirm Admin Password',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          ElevatedButton.icon(
+                            onPressed: () async {
+                              final pw = _newAdminPwController.text.trim();
+                              final conf = _confirmAdminPwController.text.trim();
+                              if (pw.length < 4) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Admin password must be at least 4 characters.'),
+                                    backgroundColor: InstitutionalTheme.statusEliminated,
+                                  ),
+                                );
+                                return;
+                              }
+                              if (pw != conf) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('Passwords do not match.'),
+                                    backgroundColor: InstitutionalTheme.statusEliminated,
+                                  ),
+                                );
+                                return;
+                              }
+                              final err = await appState.changeAdminPassword(pw);
+                              if (context.mounted) {
+                                _newAdminPwController.clear();
+                                _confirmAdminPwController.clear();
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(err ?? 'Administrator password updated successfully.'),
+                                    backgroundColor: err == null ? InstitutionalTheme.statusCompleted : InstitutionalTheme.primaryNavy,
+                                  ),
+                                );
+                              }
+                            },
+                            icon: const Icon(Icons.lock_reset, size: 16),
+                            label: const Text('UPDATE ADMIN PASSWORD'),
+                          ),
+                        ],
+                      ),
+                    ],
 
                     const SizedBox(height: 28),
                     const Divider(),
@@ -412,12 +464,13 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                       ],
                     ),
 
-                    const SizedBox(height: 28),
-                    const Divider(),
-                    const SizedBox(height: 24),
+                    if (appState.isAdmin) ...[
+                      const SizedBox(height: 28),
+                      const Divider(),
+                      const SizedBox(height: 24),
 
-                    // ORGANIZATION LETTERHEAD & PDF BRANDING
-                    const Text(
+                      // ORGANIZATION LETTERHEAD & PDF BRANDING (ADMIN ONLY - HIDDEN FROM MEMBERS)
+                      const Text(
                       'OFFICIAL ORGANIZATION LETTERHEAD & PDF BANNER',
                       style: TextStyle(
                         fontFamily: 'serif',
@@ -895,6 +948,34 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
                           ],
                         );
                       },
+                    ),
+                    ], // End if (appState.isAdmin)
+
+                    const SizedBox(height: 28),
+                    const Divider(),
+                    const SizedBox(height: 16),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'SESSION ACCOUNT: ${appState.settings.currentUserName}',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: InstitutionalTheme.primaryNavy),
+                            ),
+                            Text(
+                              appState.isAdmin ? 'Administrator Privileges (Full Access)' : 'Member Privileges (Standard Operations)',
+                              style: const TextStyle(fontSize: 11.5, color: InstitutionalTheme.textMuted),
+                            ),
+                          ],
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => appState.signOut(),
+                          icon: const Icon(Icons.logout, size: 16, color: InstitutionalTheme.statusEliminated),
+                          label: const Text('SIGN OUT', style: TextStyle(color: InstitutionalTheme.statusEliminated)),
+                        ),
+                      ],
                     ),
                   ],
                 ),

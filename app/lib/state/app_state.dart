@@ -6,6 +6,8 @@ import '../models/member_model.dart';
 import '../models/activity_log_model.dart';
 import '../models/app_settings_model.dart';
 import '../models/connected_device_model.dart';
+import '../models/user_account_model.dart';
+import '../models/account_activity_model.dart';
 import '../rules/completion_rules.dart';
 import '../database/local_database.dart';
 import '../sync/sync_service.dart';
@@ -19,9 +21,15 @@ class AppState extends ChangeNotifier {
   final List<Member> _members = [];
   final List<ActivityLog> _activityLogs = [];
   List<ConnectedDevice> _connectedDevices = [];
+  List<UserAccount> _accounts = [];
+  List<AccountActivity> _accountActivities = [];
   AppSettings _settings = AppSettings();
   int _selectedNavIndex = 0;
   String _taskFilter = 'ALL'; // 'ALL', 'PENDING', 'IN_PROGRESS', 'COMPLETED', 'ELIMINATED'
+
+  bool _isAuthenticated = false;
+  UserAccount? _currentAccount;
+  String? _authToken;
 
   // Getters
   Meeting? get activeMeeting => _activeMeeting;
@@ -30,13 +38,39 @@ class AppState extends ChangeNotifier {
   List<Member> get members => List.unmodifiable(_members);
   List<ActivityLog> get activityLogs => List.unmodifiable(_activityLogs);
   List<ConnectedDevice> get connectedDevices => List.unmodifiable(_connectedDevices);
+  List<UserAccount> get accounts => List.unmodifiable(_accounts);
+  List<AccountActivity> get accountActivities => List.unmodifiable(_accountActivities);
   AppSettings get settings => _settings;
   int get selectedNavIndex => _selectedNavIndex;
   String get taskFilter => _taskFilter;
 
-  AppState() {
+  bool get isAuthenticated => _isAuthenticated;
+  UserAccount? get currentAccount => _currentAccount;
+  String? get authToken => _authToken;
+  bool get isAdmin => (_currentAccount?.isAdmin ?? (_settings.userRole.toUpperCase() == 'ADMIN'));
+  String get currentUserEmail => _currentAccount?.email ?? 'admin@institution.gov';
+
+  AppState({bool initialAuthenticatedForTest = false}) {
+    _isAuthenticated = initialAuthenticatedForTest;
     _initSeedData();
+    _ensureDefaultOfflineAdminAccount();
     initDatabase();
+  }
+
+  void _ensureDefaultOfflineAdminAccount() {
+    if (_accounts.every((a) => !a.isAdmin)) {
+      _accounts.add(
+        UserAccount(
+          id: 'usr-admin-001',
+          email: 'admin@institution.gov',
+          username: 'admin',
+          name: 'Director Arthur Pendelton',
+          role: 'ADMIN',
+          isActive: true,
+          offlinePasswordHash: UserAccount.hashPasswordOffline('admin@institution.gov', 'Admin@123'),
+        ),
+      );
+    }
   }
 
   String _resolveInitialServerUrl() {
@@ -105,6 +139,19 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      final savedAccounts = LocalDatabase.instance.loadAccounts();
+      if (savedAccounts.isNotEmpty) {
+        _accounts = savedAccounts;
+      } else {
+        _ensureDefaultOfflineAdminAccount();
+        LocalDatabase.instance.saveAccounts(_accounts);
+      }
+
+      final savedAccountActivities = LocalDatabase.instance.loadAccountActivities();
+      if (savedAccountActivities.isNotEmpty) {
+        _accountActivities = savedAccountActivities;
+      }
+
       _configureSyncService();
       SyncService.instance.startPeriodicSync();
       SyncService.instance.sync();
@@ -123,9 +170,394 @@ class AppState extends ChangeNotifier {
       platform: platform,
       userName: _settings.currentUserName,
       userRole: _settings.userRole,
+      authToken: _authToken,
       onDataChangedCallback: _reloadFromDatabase,
       onDevicesUpdatedCallback: _onDevicesUpdated,
     );
+  }
+
+  /// Authenticates user by Email or Username + Password (Online first, Offline cache fallback)
+  Future<String?> signIn(String identifier, String password) async {
+    final cleanId = identifier.trim().toLowerCase();
+    if (cleanId.isEmpty || password.isEmpty) {
+      return 'Please enter both Email/Username and Password.';
+    }
+
+    _configureSyncService();
+    final onlineResult = await SyncService.instance.loginWithPassword(cleanId, password);
+
+    if (onlineResult.success && onlineResult.user != null) {
+      final account = onlineResult.user!;
+      _authToken = onlineResult.token;
+      _applySignedInAccount(account);
+      _upsertLocalAccountCache(account);
+      _recordLocalAccountActivity(
+        actionType: 'LOGIN_SUCCESS',
+        targetInfo: account.email,
+        details: '${account.name} signed in via ${_platformLabel()}.',
+      );
+      _configureSyncService();
+      SyncService.instance.sync();
+      if (account.isAdmin) {
+        refreshAdminAccountsAndActivities();
+      }
+      notifyListeners();
+      return null;
+    }
+
+    if (!onlineResult.networkUnavailable) {
+      _recordLocalAccountActivity(
+        actionType: 'LOGIN_FAILED',
+        targetInfo: cleanId,
+        details: onlineResult.errorMessage ?? 'Invalid credentials.',
+        overrideActorEmail: cleanId,
+        overrideActorName: cleanId,
+        overrideActorRole: 'UNKNOWN',
+      );
+      return onlineResult.errorMessage ?? 'Invalid credentials.';
+    }
+
+    // Offline Fallback Check against locally cached institutional accounts
+    UserAccount? localMatch;
+    for (final acc in _accounts) {
+      if (acc.email.toLowerCase() == cleanId || acc.username.toLowerCase() == cleanId) {
+        localMatch = acc;
+        break;
+      }
+    }
+
+    if (localMatch == null) {
+      _recordLocalAccountActivity(
+        actionType: 'LOGIN_FAILED',
+        targetInfo: cleanId,
+        details: 'Offline login rejected: account not cached on this device.',
+        overrideActorEmail: cleanId,
+        overrideActorName: cleanId,
+        overrideActorRole: 'UNKNOWN',
+      );
+      return 'Account not found locally. Please connect to the internet for initial sign-in.';
+    }
+
+    if (!localMatch.isActive) {
+      return 'This account has been deactivated by the Administrator.';
+    }
+
+    if (!localMatch.verifyPasswordOffline(password)) {
+      _recordLocalAccountActivity(
+        actionType: 'LOGIN_FAILED',
+        targetInfo: localMatch.email,
+        details: 'Offline login rejected: incorrect password.',
+        overrideActorEmail: localMatch.email,
+        overrideActorName: localMatch.name,
+        overrideActorRole: localMatch.role,
+      );
+      return 'Invalid password.';
+    }
+
+    _applySignedInAccount(localMatch);
+    _recordLocalAccountActivity(
+      actionType: 'LOGIN_SUCCESS',
+      targetInfo: localMatch.email,
+      details: '${localMatch.name} signed in (offline registry).',
+    );
+    _configureSyncService();
+    notifyListeners();
+    return null;
+  }
+
+  void _applySignedInAccount(UserAccount account) {
+    _currentAccount = account;
+    _isAuthenticated = true;
+    final uiRole = account.isAdmin ? 'Admin' : 'Secretary';
+    _settings = _settings.copyWith(
+      userRole: uiRole,
+      currentUserName: account.name,
+      currentUserId: account.id,
+    );
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveSettings(_settings);
+    }
+    if (!account.isAdmin && _selectedNavIndex == 10) {
+      _selectedNavIndex = 0;
+    }
+  }
+
+  Future<void> signOut() async {
+    if (_isAuthenticated) {
+      _recordLocalAccountActivity(
+        actionType: 'LOGOUT',
+        targetInfo: currentUserEmail,
+        details: '${_settings.currentUserName} signed out.',
+      );
+    }
+    _isAuthenticated = false;
+    _currentAccount = null;
+    _authToken = null;
+    _selectedNavIndex = 0;
+    _configureSyncService();
+    notifyListeners();
+  }
+
+  String _platformLabel() => LocalDatabase.instance.isReady
+      ? LocalDatabase.instance.getPlatformLabel()
+      : (kIsWeb ? 'Web' : 'Desktop');
+
+  void _upsertLocalAccountCache(UserAccount account) {
+    final idx = _accounts.indexWhere(
+      (a) => a.id == account.id || a.email.toLowerCase() == account.email.toLowerCase(),
+    );
+    if (idx != -1) {
+      _accounts[idx] = account.copyWith(
+        offlinePasswordHash: account.offlinePasswordHash ?? _accounts[idx].offlinePasswordHash,
+      );
+    } else {
+      _accounts.add(account);
+    }
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveAccounts(_accounts);
+    }
+  }
+
+  void _recordLocalAccountActivity({
+    required String actionType,
+    String targetInfo = '',
+    String details = '',
+    String? overrideActorEmail,
+    String? overrideActorName,
+    String? overrideActorRole,
+  }) {
+    final entry = AccountActivity(
+      id: _uuid.v4(),
+      actorUserId: _currentAccount?.id ?? _settings.currentUserId,
+      actorEmail: overrideActorEmail ?? currentUserEmail,
+      actorName: overrideActorName ?? _settings.currentUserName,
+      actorRole: overrideActorRole ?? (isAdmin ? 'ADMIN' : 'MEMBER'),
+      actionType: actionType,
+      targetInfo: targetInfo,
+      details: details,
+      deviceId: _settings.deviceId,
+      platform: _platformLabel(),
+      ipAddress: 'local',
+      timestamp: DateTime.now(),
+    );
+    _accountActivities.insert(0, entry);
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveAccountActivities(_accountActivities);
+    }
+    if (_authToken != null) {
+      SyncService.instance.postAccountActivity(
+        actionType: actionType,
+        targetInfo: targetInfo,
+        details: details,
+      );
+    }
+  }
+
+  Future<void> refreshAdminAccountsAndActivities() async {
+    if (!isAdmin) return;
+    final remoteAccounts = await SyncService.instance.fetchAccounts();
+    if (remoteAccounts.isNotEmpty) {
+      for (final r in remoteAccounts) {
+        _upsertLocalAccountCache(r);
+      }
+    }
+    final remoteActivities = await SyncService.instance.fetchAccountActivities();
+    if (remoteActivities.isNotEmpty) {
+      final existingIds = remoteActivities.map((e) => e.id).toSet();
+      final localOnly = _accountActivities.where((a) => !existingIds.contains(a.id)).toList();
+      _accountActivities = [...remoteActivities, ...localOnly]
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      if (LocalDatabase.instance.isReady) {
+        LocalDatabase.instance.saveAccountActivities(_accountActivities);
+      }
+    }
+    notifyListeners();
+  }
+
+  /// Admin Only: Create or update Member account while enrolling/editing a member
+  Future<String?> enrollOrUpdateMemberAccount({
+    Member? existingMember,
+    required String name,
+    required String email,
+    String? username,
+    required String designation,
+    String? password,
+  }) async {
+    if (!isAdmin) {
+      return 'Unauthorized: Only the Admin account can create or modify member login accounts.';
+    }
+    final cleanEmail = email.trim().toLowerCase();
+    final cleanName = name.trim();
+    if (cleanName.isEmpty) return 'Member name is required.';
+
+    Member savedMember;
+    if (existingMember == null) {
+      savedMember = addMember(
+        name: cleanName,
+        email: cleanEmail,
+        designation: designation.trim().isEmpty ? 'Member' : designation.trim(),
+      );
+    } else {
+      savedMember = existingMember.copyWith(
+        name: cleanName,
+        email: cleanEmail,
+        designation: designation.trim().isEmpty ? 'Member' : designation.trim(),
+      );
+      updateMember(savedMember);
+    }
+
+    if (cleanEmail.isNotEmpty && password != null && password.trim().isNotEmpty) {
+      final cleanPw = password.trim();
+      final cleanUsername = (username != null && username.trim().isNotEmpty)
+          ? username.trim().toLowerCase()
+          : (cleanEmail.contains('@') ? cleanEmail.split('@').first : cleanEmail);
+
+      final localAcc = UserAccount(
+        id: 'usr-${savedMember.id}',
+        email: cleanEmail,
+        username: cleanUsername,
+        name: cleanName,
+        role: 'SECRETARY',
+        memberId: savedMember.id,
+        isActive: savedMember.isActive,
+        offlinePasswordHash: UserAccount.hashPasswordOffline(cleanEmail, cleanPw),
+      );
+      _upsertLocalAccountCache(localAcc);
+
+      _recordLocalAccountActivity(
+        actionType: existingMember == null ? 'MEMBER_ENROLLED' : 'PASSWORD_CHANGED',
+        targetInfo: cleanEmail,
+        details: existingMember == null
+            ? 'Admin enrolled $cleanName ($cleanEmail) with login account.'
+            : 'Admin updated account credentials for $cleanName ($cleanEmail).',
+      );
+
+      final err = await SyncService.instance.upsertMemberAccount(
+        email: cleanEmail,
+        username: cleanUsername,
+        name: cleanName,
+        password: cleanPw,
+        memberId: savedMember.id,
+      );
+      await refreshAdminAccountsAndActivities();
+      return err;
+    }
+
+    return null;
+  }
+
+  /// Admin Only: Change Admin password
+  Future<String?> changeAdminPassword(String newPassword) async {
+    if (!isAdmin) {
+      return 'Unauthorized: Only the Admin can change the Admin password.';
+    }
+    if (newPassword.trim().length < 4) {
+      return 'Password must be at least 4 characters.';
+    }
+    final cleanPw = newPassword.trim();
+    final adminEmail = currentUserEmail;
+
+    final adminIdx = _accounts.indexWhere((a) => a.isAdmin);
+    if (adminIdx != -1) {
+      final old = _accounts[adminIdx];
+      _accounts[adminIdx] = old.copyWith(
+        offlinePasswordHash: UserAccount.hashPasswordOffline(old.email, cleanPw),
+        updatedAt: DateTime.now(),
+      );
+    } else {
+      _accounts.add(
+        UserAccount(
+          id: _currentAccount?.id ?? 'usr-admin-001',
+          email: adminEmail,
+          username: 'admin',
+          name: _settings.currentUserName,
+          role: 'ADMIN',
+          offlinePasswordHash: UserAccount.hashPasswordOffline(adminEmail, cleanPw),
+        ),
+      );
+    }
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveAccounts(_accounts);
+    }
+
+    _recordLocalAccountActivity(
+      actionType: 'PASSWORD_CHANGED',
+      targetInfo: adminEmail,
+      details: 'Admin updated Administrator account password.',
+    );
+
+    final err = await SyncService.instance.updateAdminPassword(cleanPw);
+    await refreshAdminAccountsAndActivities();
+    notifyListeners();
+    return err;
+  }
+
+  /// Admin Only: Change any Member's account password
+  Future<String?> changeMemberPassword({
+    required Member member,
+    required String newPassword,
+  }) async {
+    if (!isAdmin) {
+      return 'Unauthorized: Only the Admin can change member account passwords.';
+    }
+    if (newPassword.trim().length < 4) {
+      return 'Password must be at least 4 characters.';
+    }
+    if (member.email.trim().isEmpty) {
+      return 'This member has no login email defined yet. Edit the member to assign an email first.';
+    }
+    final cleanPw = newPassword.trim();
+    final cleanEmail = member.email.trim().toLowerCase();
+
+    final idx = _accounts.indexWhere(
+      (a) => a.memberId == member.id || a.email.toLowerCase() == cleanEmail,
+    );
+    String targetId = member.id;
+    if (idx != -1) {
+      targetId = _accounts[idx].id;
+      _accounts[idx] = _accounts[idx].copyWith(
+        offlinePasswordHash: UserAccount.hashPasswordOffline(cleanEmail, cleanPw),
+        updatedAt: DateTime.now(),
+      );
+    } else {
+      final acc = UserAccount(
+        id: 'usr-${member.id}',
+        email: cleanEmail,
+        username: cleanEmail.contains('@') ? cleanEmail.split('@').first : cleanEmail,
+        name: member.name,
+        role: 'SECRETARY',
+        memberId: member.id,
+        isActive: member.isActive,
+        offlinePasswordHash: UserAccount.hashPasswordOffline(cleanEmail, cleanPw),
+      );
+      _accounts.add(acc);
+    }
+    if (LocalDatabase.instance.isReady) {
+      LocalDatabase.instance.saveAccounts(_accounts);
+    }
+
+    _recordLocalAccountActivity(
+      actionType: 'PASSWORD_CHANGED',
+      targetInfo: cleanEmail,
+      details: 'Admin updated password for member ${member.name} ($cleanEmail).',
+    );
+
+    // Ensure account exists or update password on server
+    String? err = await SyncService.instance.updateAccountPassword(
+      accountOrMemberId: targetId,
+      newPassword: cleanPw,
+    );
+    if (err != null && err.toLowerCase().contains('not found')) {
+      err = await SyncService.instance.upsertMemberAccount(
+        email: cleanEmail,
+        name: member.name,
+        password: cleanPw,
+        memberId: member.id,
+      );
+    }
+    await refreshAdminAccountsAndActivities();
+    notifyListeners();
+    return err;
   }
 
   void _onDevicesUpdated(List<ConnectedDevice> devices) {

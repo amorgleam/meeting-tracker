@@ -167,9 +167,17 @@ class InstitutionalSidebar extends StatelessWidget {
                   context,
                   index: 9,
                   icon: Icons.tune_outlined,
-                  label: 'Admin Settings',
+                  label: appState.isAdmin ? 'Admin Settings' : 'Theme & Preferences',
                   isSelected: appState.selectedNavIndex == 9,
                 ),
+                if (appState.isAdmin)
+                  _navItem(
+                    context,
+                    index: 10,
+                    icon: Icons.security_outlined,
+                    label: 'Account Activities',
+                    isSelected: appState.selectedNavIndex == 10,
+                  ),
               ],
             ),
           ),
@@ -216,7 +224,7 @@ class InstitutionalSidebar extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            'ROLE: ${appState.settings.userRole.toUpperCase()}',
+                            appState.isAdmin ? 'ROLE: ADMIN' : 'ROLE: MEMBER',
                             style: const TextStyle(
                               color: InstitutionalTheme.goldLight,
                               fontSize: 10,
@@ -227,35 +235,42 @@ class InstitutionalSidebar extends StatelessWidget {
                         ],
                       ),
                     ),
+                    IconButton(
+                      tooltip: 'Sign Out',
+                      onPressed: () => appState.signOut(),
+                      icon: const Icon(Icons.logout, color: InstitutionalTheme.goldLight, size: 18),
+                    ),
                   ],
                 ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: const Color(0x1A22C55E),
-                    border: Border.all(color: const Color(0x4422C55E), width: 1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: const Row(
-                    children: [
-                      Icon(Icons.wifi_off_outlined, size: 12, color: Color(0xFF86EFAC)),
-                      SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'OFFLINE-FIRST (DRIFT SQLITE)',
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: Color(0xFF86EFAC),
-                            fontSize: 9.0,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.3,
+                if (appState.isAdmin) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0x1A22C55E),
+                      border: Border.all(color: const Color(0x4422C55E), width: 1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                    child: const Row(
+                      children: [
+                        Icon(Icons.storage_outlined, size: 12, color: Color(0xFF86EFAC)),
+                        SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'OFFLINE-FIRST & CLOUD SYNC',
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: Color(0xFF86EFAC),
+                              fontSize: 9.0,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.3,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

@@ -11,6 +11,7 @@ import 'task_ledger_screen.dart';
 import 'members_screen.dart';
 import 'reports_screen.dart';
 import 'admin_settings_screen.dart';
+import 'account_activities_screen.dart';
 
 class MainLayout extends StatelessWidget {
   const MainLayout({super.key});
@@ -57,6 +58,11 @@ class MainLayout extends StatelessWidget {
           case 9:
             content = const AdminSettingsScreen();
             break;
+          case 10:
+            content = appState.isAdmin
+                ? const AccountActivitiesScreen()
+                : const ActiveMeetingScreen();
+            break;
           default:
             content = const ActiveMeetingScreen();
         }
@@ -71,7 +77,7 @@ class MainLayout extends StatelessWidget {
                   child: Column(
                     children: [
                       InstitutionalAppBar(
-                        title: _getTitle(appState.selectedNavIndex, appState.activeMeeting != null),
+                        title: _getTitle(appState.selectedNavIndex, appState.activeMeeting != null, appState.isAdmin),
                       ),
                       Expanded(child: content),
                     ],
@@ -84,7 +90,7 @@ class MainLayout extends StatelessWidget {
           // Android / Mobile: Bottom Navigation Bar + Institutional Docket Cards
           return Scaffold(
             appBar: InstitutionalAppBar(
-              title: _getTitle(appState.selectedNavIndex, appState.activeMeeting != null),
+              title: _getTitle(appState.selectedNavIndex, appState.activeMeeting != null, appState.isAdmin),
             ),
             body: content,
             bottomNavigationBar: const InstitutionalBottomNav(),
@@ -94,7 +100,7 @@ class MainLayout extends StatelessWidget {
     );
   }
 
-  String _getTitle(int index, bool hasActiveMeeting) {
+  String _getTitle(int index, bool hasActiveMeeting, bool isAdmin) {
     switch (index) {
       case 0:
         return hasActiveMeeting ? 'Active Meeting Proceedings' : 'Convene New Meeting';
@@ -115,7 +121,9 @@ class MainLayout extends StatelessWidget {
       case 8:
         return 'Executive Progress Reports';
       case 9:
-        return 'Administrative & Sync Settings';
+        return isAdmin ? 'Administrative & Sync Settings' : 'Theme & Session Preferences';
+      case 10:
+        return 'Account Activities & Security Audit';
       default:
         return 'Meeting Tracker';
     }
