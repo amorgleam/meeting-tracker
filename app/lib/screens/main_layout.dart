@@ -56,12 +56,18 @@ class MainLayout extends StatelessWidget {
             content = const ReportsScreen();
             break;
           case 9:
-            content = const AdminSettingsScreen();
+            content = appState.isAdmin
+                ? const AdminSettingsScreen()
+                : (appState.activeMeeting != null
+                    ? const ActiveMeetingScreen()
+                    : const StartMeetingScreen());
             break;
           case 10:
             content = appState.isAdmin
                 ? const AccountActivitiesScreen()
-                : const ActiveMeetingScreen();
+                : (appState.activeMeeting != null
+                    ? const ActiveMeetingScreen()
+                    : const StartMeetingScreen());
             break;
           default:
             content = const ActiveMeetingScreen();
@@ -121,7 +127,7 @@ class MainLayout extends StatelessWidget {
       case 8:
         return 'Executive Progress Reports';
       case 9:
-        return isAdmin ? 'Administrative & Sync Settings' : 'Theme & Session Preferences';
+        return 'Administrative & Sync Settings';
       case 10:
         return 'Account Activities & Security Audit';
       default:

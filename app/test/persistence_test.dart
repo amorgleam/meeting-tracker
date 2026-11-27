@@ -151,7 +151,7 @@ void main() {
       expect(appState.isAuthenticated, isTrue);
       expect(appState.isAdmin, isFalse);
 
-      // Member CANNOT change Admin password or Member passwords
+      // Member CANNOT change Admin password, Member passwords, or open Settings/Account Activities
       final denyAdminPw = await appState.changeAdminPassword('Hacked123');
       expect(denyAdminPw, contains('Unauthorized'));
       final denyEnroll = await appState.enrollOrUpdateMemberAccount(
@@ -161,6 +161,11 @@ void main() {
         password: 'EvePassword1',
       );
       expect(denyEnroll, contains('Unauthorized'));
+
+      appState.setNavIndex(9);
+      expect(appState.selectedNavIndex, 0);
+      appState.setNavIndex(10);
+      expect(appState.selectedNavIndex, 0);
     });
   });
 }

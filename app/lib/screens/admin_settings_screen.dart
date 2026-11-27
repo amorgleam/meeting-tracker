@@ -34,7 +34,7 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
     _primaryHexController = TextEditingController(text: settings.primaryColorHex);
     _accentHexController = TextEditingController(text: settings.accentColorHex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
+      if (mounted && context.read<AppState>().isAdmin) {
         context.read<AppState>().refreshConnectedDevices();
       }
     });
@@ -56,6 +56,42 @@ class _AdminSettingsScreenState extends State<AdminSettingsScreen> {
   Widget build(BuildContext context) {
     final appState = context.watch<AppState>();
     final settings = appState.settings;
+
+    if (!appState.isAdmin) {
+      return Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 460),
+          padding: const EdgeInsets.all(24),
+          decoration: BoxDecoration(
+            color: InstitutionalTheme.creamCard,
+            border: Border.all(color: InstitutionalTheme.borderLedger),
+            borderRadius: BorderRadius.circular(3),
+          ),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.lock_outline, size: 36, color: InstitutionalTheme.primaryNavy),
+              SizedBox(height: 12),
+              Text(
+                'ADMINISTRATOR ACCESS REQUIRED',
+                style: TextStyle(
+                  fontFamily: 'serif',
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  color: InstitutionalTheme.primaryNavy,
+                ),
+              ),
+              SizedBox(height: 8),
+              Text(
+                'Settings, theme customization, letterhead branding, and server configuration are restricted to the Admin account.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 12.5, color: InstitutionalTheme.textBody),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(24),

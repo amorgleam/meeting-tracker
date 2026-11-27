@@ -277,7 +277,7 @@ class AppState extends ChangeNotifier {
     if (LocalDatabase.instance.isReady) {
       LocalDatabase.instance.saveSettings(_settings);
     }
-    if (!account.isAdmin && _selectedNavIndex == 10) {
+    if (!account.isAdmin && (_selectedNavIndex == 9 || _selectedNavIndex == 10)) {
       _selectedNavIndex = 0;
     }
   }
@@ -593,7 +593,11 @@ class AppState extends ChangeNotifier {
   }
 
   void setNavIndex(int index) {
-    _selectedNavIndex = index;
+    if (!isAdmin && (index == 9 || index == 10)) {
+      _selectedNavIndex = 0;
+    } else {
+      _selectedNavIndex = index;
+    }
     notifyListeners();
   }
 

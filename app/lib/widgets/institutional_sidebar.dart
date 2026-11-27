@@ -163,14 +163,14 @@ class InstitutionalSidebar extends StatelessWidget {
                   label: 'Executive Reports',
                   isSelected: appState.selectedNavIndex == 8,
                 ),
-                _navItem(
-                  context,
-                  index: 9,
-                  icon: Icons.tune_outlined,
-                  label: appState.isAdmin ? 'Admin Settings' : 'Theme & Preferences',
-                  isSelected: appState.selectedNavIndex == 9,
-                ),
-                if (appState.isAdmin)
+                if (appState.isAdmin) ...[
+                  _navItem(
+                    context,
+                    index: 9,
+                    icon: Icons.tune_outlined,
+                    label: 'Admin Settings',
+                    isSelected: appState.selectedNavIndex == 9,
+                  ),
                   _navItem(
                     context,
                     index: 10,
@@ -178,6 +178,7 @@ class InstitutionalSidebar extends StatelessWidget {
                     label: 'Account Activities',
                     isSelected: appState.selectedNavIndex == 10,
                   ),
+                ],
               ],
             ),
           ),
